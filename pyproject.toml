@@ -1,7 +1,7 @@
 [project]
-name = "fitnesstracker"
+name = "Fitlytics"
 version = "0.1.0"
-description = "Add your description here"
+description = "Analyze and visualize fitness and training data"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
