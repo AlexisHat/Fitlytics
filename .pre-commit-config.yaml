@@ -7,8 +7,47 @@ repos:
       - id: check-added-large-files
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.0
+    rev: v0.15.15
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy src tests
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: pytest
+        name: pytest
+        # Exit-Code 5 = "keine Tests eingesammelt"; das ist in frühen Commits
+        # ohne Testdateien kein Fehler, echte Testfehler (Exit 1) blocken weiterhin.
+        entry: bash -c 'uv run pytest; code=$?; [ "$code" -eq 5 ] && exit 0 || exit "$code"'
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: interrogate
+        name: interrogate
+        entry: uv run interrogate -v src
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: deal-lint
+        name: deal lint
+        entry: uv run python -m deal lint src
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: deal-test
+        name: deal test
+        entry: uv run python -m deal test src
+        language: system
+        pass_filenames: false
+        types: [python]
