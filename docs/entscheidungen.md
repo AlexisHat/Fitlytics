@@ -64,3 +64,19 @@
 **Begründung:** `fitdecode` liefert keine Typstubs also ohne Override meldet `mypy --strict` bei jedem Import einen `import-untyped`-Fehler.
 
 ---
+
+### FIT-Import: Fehlerbehandlung an der Systemgrenze
+
+**Entscheidung:** `import_fit_file` fängt alle `fitdecode`-Exceptions und `OSError` und wirft sie als `FileImportError` neu; verlangt genau eine `session`-Message; eine leere `records`-Liste (Pydantic-Fehler) wird ebenfalls als `FileImportError` neu geworfen statt roh durchgereicht.
+
+**Begründung:** Einheitliche Fehlerart an der Modulgrenze keine Nutzereingabe (kaputte/leere Datei, Datei ohne Session) soll die Anwendung zum Absturz bringen.
+
+---
+
+### FIT-Import: pfad- und stream-fähige Schnittstelle
+
+**Entscheidung:** `import_fit_file(source: str | Path | IO[bytes])` reicht `source` unverändert an `fitdecode.FitReader` durch, das selbst zwischen Pfad, datei-artigem Objekt und rohen Bytes unterscheidet.
+
+**Begründung:** Dieselbe Funktion funktioniert unverändert mit einem Testpfad (`data/beispiel/...`) und später mit `st.file_uploader()`s `UploadedFile` (Subklasse von `io.BytesIO`) — keine separate Wrapper-Logik nötig.
+
+---

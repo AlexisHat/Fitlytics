@@ -1,7 +1,13 @@
-"""Build a small, valid example FIT file from a real private recording.
+"""Build small example FIT files (valid, empty, broken) from a real recording.
 
-So that we have a small test case .fit file for testing we isolate about
-20 records from a whole real trainings Session
+The valid fixture takes a contiguous prefix (header through the 20th
+``record`` message, so no local message type definition is ever skipped)
+plus the closing summary messages (lap/event/session/activity, each with its
+own definition message right before it) from the end of the file. A naive
+middle "window" of records was tried first and rejected: FIT devices can
+redefine a message's field layout mid-recording (e.g. once GPS lock is
+acquired), so splicing in records from later in the file without their
+locally-active definition breaks decoding.
 
 Run from the repository root: ``uv run python scripts/build_example_fit.py``
 """
@@ -12,7 +18,9 @@ import fitdecode
 from fitdecode.utils import compute_crc
 
 SRC = Path("data/private/07-162x8minFTP.fit")
-DST = Path("data/beispiel/training_gueltig.fit")
+DST_VALID = Path("data/beispiel/training_gueltig.fit")
+DST_EMPTY = Path("data/beispiel/training_leer.fit")
+DST_BROKEN = Path("data/beispiel/training_defekt.fit")
 
 N_RECORDS = 20
 PREFIX_END = 134  # frames[0:134]: header .. 20th record (inclusive)
@@ -20,8 +28,8 @@ TAIL_START = 5600  # lap definition
 TAIL_END = 5611  # exclusive; leaves out the original CRC frame (5611)
 
 
-def main() -> None:
-    """Read the private FIT file and write the trimmed example fixture."""
+def build_valid_fixture() -> bytes:
+    """Build the small, valid example FIT file's bytes."""
     with fitdecode.FitReader(str(SRC), keep_raw_chunks=True) as reader:
         frames = list(reader)
 
@@ -36,11 +44,24 @@ def main() -> None:
 
     full_size = len(new_header) + len(body_bytes)
     footer_crc = compute_crc(new_header + body_bytes, start=0, end=full_size)
-    new_file_bytes = new_header + body_bytes + footer_crc.to_bytes(2, "little")
+    return new_header + body_bytes + footer_crc.to_bytes(2, "little")
 
-    DST.parent.mkdir(parents=True, exist_ok=True)
-    DST.write_bytes(new_file_bytes)
-    print(f"written: {DST} ({len(new_file_bytes)} bytes, source {SRC.stat().st_size})")
+
+def main() -> None:
+    """Write the valid, empty and broken example FIT fixtures."""
+    valid_bytes = build_valid_fixture()
+    DST_VALID.parent.mkdir(parents=True, exist_ok=True)
+    DST_VALID.write_bytes(valid_bytes)
+    src_size = SRC.stat().st_size
+    print(f"written: {DST_VALID} ({len(valid_bytes)} bytes, source {src_size})")
+
+    DST_EMPTY.write_bytes(b"")
+    print(f"written: {DST_EMPTY} (0 bytes)")
+
+    # Nur die ersten 20 Bytes: unvollstaendiger Header, garantiert ein Parse-Fehler.
+    broken_bytes = valid_bytes[:20]
+    DST_BROKEN.write_bytes(broken_bytes)
+    print(f"written: {DST_BROKEN} ({len(broken_bytes)} bytes)")
 
 
 if __name__ == "__main__":
