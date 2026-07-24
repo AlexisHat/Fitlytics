@@ -24,7 +24,7 @@ virtuelle Umgebung (`.venv/`).
 ## Projektstruktur
 
 ```
-src/fitlytics/   Quellcode
+src/             Quellcode, ein Package je Fachkonzern (models/, errors/, ...)
 tests/           Tests (Unit-, Property- und Doctests)
 data/beispiel/   kleine, eingecheckte Beispieldateien (FIT/CSV, auch defekte Varianten)
 data/private/    eigene, echte Trainingsdaten (nicht Teil des Repositories)
