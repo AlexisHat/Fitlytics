@@ -80,3 +80,17 @@
 **Begründung:** Dieselbe Funktion funktioniert unverändert mit einem Testpfad (`data/beispiel/...`) und später mit `st.file_uploader()`s `UploadedFile` (Subklasse von `io.BytesIO`) — keine separate Wrapper-Logik nötig.
 
 ---
+
+### Whoop-Zeitzonenformat: `"UTCZ"` als Sonderfall
+
+**Entscheidung:** Die Spalte „Zeitzone des Zyklus" hat drei reale Werte: `UTC+02:00`, `UTC+01:00` und `UTCZ`. `_parse_utc_offset` behandelt `"UTCZ"` explizit als Sonderfall statt es als `UTC±HH:MM` zu parsen.
+
+**Begründung:** Beim Prüfen der echten CSV festgestellt
+
+---
+
+### Whoop-Import: lokales Datum vs. UTC-Zeitstempel
+
+**Entscheidung:** `RecoveryDay.date` bleibt das lokale Kalenderdatum aus der CSV, `cycle_start` ist dieselbe Zeit nach UTC konvertiert.
+
+---
