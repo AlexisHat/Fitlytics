@@ -70,7 +70,7 @@ def test_parse_utc_offset_handles_negative_offset() -> None:
     assert _parse_utc_offset("UTC-05:00") == timezone(timedelta(hours=-5))
 
 
-def test_build_recovery_day_keeps_local_date_but_converts_cycle_start_to_utc() -> None:
+def test_build_recovery_day_converts_cycle_start_to_utc() -> None:
     row = {
         "Startzeit des Zyklus": "2026-07-23 01:43:25",
         "Zeitzone des Zyklus": "UTC+02:00",
@@ -80,6 +80,33 @@ def test_build_recovery_day_keeps_local_date_but_converts_cycle_start_to_utc() -
 
     assert day.date == date(2026, 7, 23)
     assert day.cycle_start == datetime(2026, 7, 22, 23, 43, 25, tzinfo=UTC)
+
+
+def test_build_recovery_day_dates_an_after_midnight_cycle_to_that_same_day() -> None:
+    row = {
+        "Startzeit des Zyklus": "2026-07-23 03:12:00",
+        "Zeitzone des Zyklus": "UTC+02:00",
+    }
+
+    assert _build_recovery_day(row).date == date(2026, 7, 23)
+
+
+def test_build_recovery_day_dates_an_evening_cycle_to_the_following_day() -> None:
+    """A cycle begun before midnight reports on the day one wakes up in."""
+    row = {
+        "Startzeit des Zyklus": "2026-03-27 22:06:55",
+        "Zeitzone des Zyklus": "UTC+01:00",
+    }
+
+    assert _build_recovery_day(row).date == date(2026, 3, 28)
+
+
+def test_import_whoop_csv_gives_each_day_a_distinct_date() -> None:
+    """The noon-to-noon rule is what makes the date unique per cycle."""
+    days = import_whoop_csv(VALID_FIXTURE)
+
+    dates = [day.date for day in days]
+    assert len(set(dates)) == len(dates)
 
 
 def test_build_recovery_day_maps_optional_fields_to_none_when_absent() -> None:

@@ -1,12 +1,17 @@
 """Pydantic models for a single training session imported from a FIT file."""
 
-from datetime import datetime
+from pydantic import BaseModel, Field, NonNegativeFloat, NonNegativeInt, PositiveInt
 
-from pydantic import BaseModel, Field
+from models.types import UtcDatetime
 
 
 class RecordPoint(BaseModel):
     """A single timestamped measurement within a workout.
+
+    Zero is a genuine reading for power, cadence and speed — a rider coasting
+    downhill produces long stretches of it — so only negative values are
+    rejected here. Implausibly *high* readings are a sensor artefact rather
+    than an impossibility and are handled by :mod:`validation` instead.
 
     Attributes:
         timestamp: Time of the measurement, UTC.
@@ -15,15 +20,15 @@ class RecordPoint(BaseModel):
         cadence: Pedalling cadence in revolutions per minute, if recorded.
         distance_m: Cumulative distance in metres, if recorded.
         speed_ms: Instantaneous speed in metres per second, if recorded.
-        altitude_m: Altitude in metres, if recorded.
+        altitude_m: Altitude in metres, if recorded; may be negative.
     """
 
-    timestamp: datetime
-    heart_rate: int | None = None
-    power: int | None = None
-    cadence: int | None = None
-    distance_m: float | None = None
-    speed_ms: float | None = None
+    timestamp: UtcDatetime
+    heart_rate: NonNegativeInt | None = None
+    power: NonNegativeInt | None = None
+    cadence: NonNegativeInt | None = None
+    distance_m: NonNegativeFloat | None = None
+    speed_ms: NonNegativeFloat | None = None
     altitude_m: float | None = None
 
 
@@ -39,8 +44,8 @@ class Workout(BaseModel):
         records: Time-ordered measurements of the session; at least one.
     """
 
-    start_time: datetime
-    sport: str
+    start_time: UtcDatetime
+    sport: str = Field(min_length=1)
     sub_sport: str | None = None
-    ftp_watts: int | None = None
+    ftp_watts: PositiveInt | None = None
     records: list[RecordPoint] = Field(min_length=1)

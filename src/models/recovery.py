@@ -1,15 +1,20 @@
 """Pydantic model for a single day of recovery metrics from a Whoop export."""
 
-from datetime import date, datetime
+from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, NonNegativeFloat, PositiveInt
+
+from models.types import PercentFloat, PercentInt, UtcDatetime
 
 
 class RecoveryDay(BaseModel):
     """Recovery metrics for a single day, imported from a Whoop export.
 
     Attributes:
-        date: Local calendar date the cycle belongs to.
+        date: Local calendar day the cycle reports on. A Whoop cycle spans
+            one sleep and the waking day that follows it, so this is not
+            simply the day the cycle started on; see
+            :func:`readers.whoop._build_recovery_day`.
         cycle_start: Start of the physiological cycle, UTC.
         recovery_score: Whoop recovery score in percent, if available.
         resting_hr: Resting heart rate in beats per minute, if available.
@@ -20,10 +25,10 @@ class RecoveryDay(BaseModel):
     """
 
     date: date
-    cycle_start: datetime
-    recovery_score: int | None = None
-    resting_hr: int | None = None
-    hrv_ms: float | None = None
+    cycle_start: UtcDatetime
+    recovery_score: PercentInt | None = None
+    resting_hr: PositiveInt | None = None
+    hrv_ms: NonNegativeFloat | None = None
     skin_temp_c: float | None = None
-    respiratory_rate: float | None = None
-    blood_oxygen: float | None = None
+    respiratory_rate: NonNegativeFloat | None = None
+    blood_oxygen: PercentFloat | None = None

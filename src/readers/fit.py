@@ -30,9 +30,12 @@ def _build_record_point(fields: dict[str, Any]) -> RecordPoint:
         KeyError: If ``timestamp`` is missing.
         pydantic.ValidationError: If a present field has an unusable value.
 
-    >>> from datetime import datetime
+    >>> from datetime import UTC, datetime
     >>> point = _build_record_point(
-    ...     {"timestamp": datetime(2026, 7, 16, 14, 11, 39), "heart_rate": 120}
+    ...     {
+    ...         "timestamp": datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+    ...         "heart_rate": 120,
+    ...     }
     ... )
     >>> point.heart_rate, point.power
     (120, None)

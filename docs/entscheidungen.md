@@ -93,4 +93,64 @@
 
 **Entscheidung:** `RecoveryDay.date` bleibt das lokale Kalenderdatum aus der CSV, `cycle_start` ist dieselbe Zeit nach UTC konvertiert.
 
+*(In Meilenstein 5 revidiert, siehe „Whoop-Tagesbezug: Mittag-zu-Mittag".)*
+
+---
+
+## Meilenstein 5: Validierung und Vereinheitlichung
+
+### UTC-Prüfung als Annotated-Typ im Modell
+
+**Entscheidung:** `UtcDatetime` in `src/models/types.py` lehnt naive Zeitstempel ab und rechnet aware-Werte verlustfrei nach UTC um. Alle Zeitfelder der Modelle nutzen diesen Typ.
+
+**Begründung:** Timezone-Awareness ist eine strukturelle Eigenschaft des Typs, kein Prüfschritt — es gibt keinen gültigen `Workout` mit naivem Zeitstempel. Im Modell gilt sie auf jedem Konstruktionsweg, auch beim Rücklesen aus SQLite. Ein nachgelagerter Schritt könnte das nicht zusichern, weil das Objekt zwischen Konstruktion und Prüfung ungültig existierte. Naive Werte werden abgelehnt statt als UTC angenommen: Raten würde jeden Zeitstempel eines anders konfigurierten Geräts still um Stunden verschieben.
+
+---
+
+### Definitorische Grenzen im Modell, physiologische in der Validierung
+
+**Entscheidung:** Was aus der Größe selbst folgt (Prozent 0–100, Distanz/Leistung nicht negativ), steht als Pydantic-Constraint im Modell. Was nur unwahrscheinlich ist (HF 20–240, HRV ≤ 300 ms, Hauttemperatur 20–45 °C), steht als benannte Konstante in `src/validation/ranges.py`.
+
+**Begründung:** Die beiden Fälle haben verschiedene Konsequenzen. Ein Prozentwert von 120 macht den Datensatz ungültig; eine HF von 250 ist ein Sensorartefakt in einem sonst brauchbaren Datensatz. Nur die erste Klasse darf die Konstruktion verhindern. Die Grenzen sind bewusst großzügig — sie sollen Aussetzer fangen, nicht den Sportler bewerten.
+
+---
+
+### Null ist ein Messwert, kein Fehlwert
+
+**Entscheidung:** Bei `power`, `cadence` und `speed_ms` ist 0 gültig und wird nicht verworfen. Bei `heart_rate` liegt die Untergrenze bei 20, eine 0 wird also verworfen.
+
+**Begründung:** In der echten Trainingsdatei stehen 667 Nullwerte bei der Leistung und 571 bei der Trittfrequenz — das ist Rollenlassen, kein Defekt. Eine Herzfrequenz von 0 gibt es dagegen nicht; sie bedeutet, dass der Brustgurt den Kontakt verloren hat.
+
+---
+
+### Wertebereichsverstoß: Einzelwert verwerfen statt Einheit ablehnen
+
+**Entscheidung:** Ein unplausibler Messwert wird auf `None` gesetzt, der Record bleibt erhalten. Gezählt wird das im `ValidationReport`, den die Oberfläche anzeigt. Verworfene Alternative: die ganze Einheit als `DataValidationError` ablehnen.
+
+**Begründung:** Ein Ausreißer unter 4972 Records darf keine zweistündige Ausfahrt kosten, und der Record selbst trägt den Zeitstempel, auf dem jede spätere Zeitreihe beruht. Damit das kein stiller Fallback ist, wird jeder verworfene Wert gezählt und sichtbar gemacht — sonst würde sich die Durchschnitts-HF klammheimlich verbessern.
+
+---
+
+### Validierung als eigene Stufe nach dem Import
+
+**Entscheidung:** `src/validation/` mit `validate_workout` und `validate_recovery_days`, die `(Daten, ValidationReport)` zurückgeben. Die Reader aus M3/M4 bleiben unverändert. Verworfene Alternative: Validierung in die Reader integrieren.
+
+**Begründung:** Die Reader bedeuten weiterhin „Datei originalgetreu einlesen". Als eigene Stufe prüft derselbe Code auch Daten, die aus der Datenbank zurückkommen, und lässt sich ohne Beispieldatei testen.
+
+---
+
+### Whoop-Tagesbezug: Mittag-zu-Mittag
+
+**Entscheidung:** `RecoveryDay.date` ist das lokale Datum von `Startzeit + 12 h` statt das Startdatum selbst.
+
+**Begründung:** Ein Whoop-Zyklus ist kein Kalendertag — er umfasst einen Schlaf plus den folgenden Wachtag. In den echten Daten (344 Zyklen) beginnen 327 nach Mitternacht, 14 aber davor. Bei diesen 14 fiel der Start auf den Vortag und kollidierte mit dem Zyklus, der am selben Datum nach Mitternacht begann: 12 doppelte Kalenderdaten. Die Verschiebung um 12 Stunden ordnet jeden Zyklus dem Tag zu, in dem sein Mittag liegt. Sie löst alle 12 Duplikate, ist stabil im Bereich +10 h bis +14 h (also nicht an diesen Datensatz überangepasst) und lässt 327 der 344 Zeilen unverändert. Erst dadurch wird `date` eindeutig — und ein Duplikat zu einem aussagekräftigen `DataValidationError`. Ohne die Korrektur würde ein Workout mit der Recovery des falschen Tages verrechnet.
+
+---
+
+### `deal test` ist kein Prüfkriterium
+
+**Entscheidung:** `deal test` bleibt als pre-commit-Hook bestehen, zählt aber nicht mehr zu den harten Anforderungen. Die Verträge werden durch `deal lint` und eigene Property-Tests abgesichert.
+
+**Begründung:** `deal test` generiert Testfälle ausschließlich für `@deal.pure`-Funktionen und überspringt alle anderen stillschweigend mit Exit-Code 0 — eine absichtlich verletzte Postcondition blieb im Test unentdeckt. Die leere Ausgabe bedeutet „nichts getestet", nicht „alles grün". `@deal.pure` nur zu setzen, damit das Werkzeug etwas findet, wäre teuer erkauft: es schließt `@deal.has()` ein und prüft Seiteneffekte bei jedem einzelnen Aufruf.
+
 ---

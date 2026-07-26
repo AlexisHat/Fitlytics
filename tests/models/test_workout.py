@@ -36,3 +36,41 @@ def test_workout_requires_at_least_one_record() -> None:
             sport="cycling",
             records=[],
         )
+
+
+def test_workout_rejects_empty_sport() -> None:
+    with pytest.raises(PydanticValidationError):
+        Workout(
+            start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+            sport="",
+            records=[
+                RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))
+            ],
+        )
+
+
+def test_record_point_accepts_zero_power_and_cadence() -> None:
+    """Coasting downhill is a genuine reading, not a missing value."""
+    point = RecordPoint(
+        timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC), power=0, cadence=0
+    )
+
+    assert point.power == 0
+    assert point.cadence == 0
+
+
+@pytest.mark.parametrize("field", ["heart_rate", "power", "cadence"])
+def test_record_point_rejects_negative_measurements(field: str) -> None:
+    with pytest.raises(PydanticValidationError):
+        RecordPoint(
+            timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC), **{field: -1}
+        )
+
+
+def test_record_point_allows_negative_altitude() -> None:
+    """Below sea level is a real place, not a sensor error."""
+    point = RecordPoint(
+        timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC), altitude_m=-4.2
+    )
+
+    assert point.altitude_m == -4.2
