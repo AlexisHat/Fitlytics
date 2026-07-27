@@ -154,3 +154,37 @@
 **Begründung:** `deal test` generiert Testfälle ausschließlich für `@deal.pure`-Funktionen und überspringt alle anderen stillschweigend mit Exit-Code 0 — eine absichtlich verletzte Postcondition blieb im Test unentdeckt. Die leere Ausgabe bedeutet „nichts getestet", nicht „alles grün". `@deal.pure` nur zu setzen, damit das Werkzeug etwas findet, wäre teuer erkauft: es schließt `@deal.has()` ein und prüft Seiteneffekte bei jedem einzelnen Aufruf.
 
 ---
+
+## Meilenstein 6: Kennzahlen
+
+### Trainingsdauer: elapsed_time und moving_time getrennt speichern
+
+**Entscheidung:** `WorkoutMetrics` speichert sowohl `elapsed_time` (letzter minus erster Zeitstempel, inkl. Pausen) als auch `moving_time` (dieselbe Spanne abzüglich Lücken über 2 Sekunden). Beide als `timedelta`.
+
+**Begründung:** Beide sind Interessant für die Analyse
+
+---
+
+### Fehlende Messreihe ergibt `None`, kein Fehler
+
+**Entscheidung:** `avg_power`, `distance_m` usw. sind `None`, wenn die zugehörige Messreihe im Workout komplett fehlt (z. B. kein Leistungsmesser).
+
+**Begründung:** Ein Rad ohne Leistungsmesser ist ein normaler, erwartbarer Zustand, kein Analysefehler
+
+---
+
+### Ein generischer `average()`-Rechenkern statt separater Funktionen je Kennzahl
+
+**Entscheidung:** Ø-Herzfrequenz und Ø-Leistung nutzen dieselbe `average()`-Funktion in `analysis/metrics.py`
+
+**Begründung:** Beide Berechnungen sind identisch (arithmetisches Mittel)
+
+---
+
+### Postcondition von `average()` toleriert Gleitkomma-Rundung
+
+**Entscheidung:** Die Nachbedingung prüft `min ≤ Ergebnis ≤ max` über `_is_between()`, die einen Wert nahe einer Grenze (`math.isclose`) auch als gültig behandelt, statt strikt zu vergleichen.
+
+**Begründung:** `hypothesis` fand einen Fall (drei identische Werte ≈700000), bei dem `sum/len` durch Rundung minimal unter das exakte Minimum fällt — auch `statistics.fmean` zeigt das. Eigenschaft von IEEE-754, kein Fehler in der Berechnung.
+
+---
