@@ -74,3 +74,27 @@ def test_record_point_allows_negative_altitude() -> None:
     )
 
     assert point.altitude_m == -4.2
+
+
+def test_workout_allows_negative_avg_grade() -> None:
+    """A net-downhill course is a real profile, not a sensor error."""
+    workout = Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        avg_grade_pct=-1.5,
+        records=[RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))],
+    )
+
+    assert workout.avg_grade_pct == -1.5
+
+
+def test_workout_rejects_negative_total_ascent() -> None:
+    with pytest.raises(PydanticValidationError):
+        Workout(
+            start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+            sport="cycling",
+            total_ascent_m=-1.0,
+            records=[
+                RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))
+            ],
+        )

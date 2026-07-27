@@ -113,6 +113,13 @@ def import_fit_file(source: str | Path | IO[bytes]) -> Workout:
             sport=session["sport"],
             sub_sport=session.get("sub_sport"),
             ftp_watts=session.get("threshold_power"),
+            total_ascent_m=session.get("total_ascent"),
+            total_descent_m=session.get("total_descent"),
+            avg_grade_pct=session.get("avg_grade"),
+            total_work_j=session.get("total_work"),
+            device_normalized_power=session.get("normalized_power"),
+            device_intensity_factor=session.get("intensity_factor"),
+            device_training_stress_score=session.get("training_stress_score"),
             records=records,
         )
     except (fitdecode.FitError, OSError, KeyError, PydanticValidationError) as exc:

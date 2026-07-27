@@ -27,6 +27,18 @@ def test_import_fit_file_reads_valid_fixture() -> None:
     assert workout.records[-1].power == 26
 
 
+def test_import_fit_file_reads_device_computed_session_fields() -> None:
+    workout = import_fit_file(VALID_FIXTURE)
+
+    assert workout.total_ascent_m == 29
+    assert workout.total_descent_m == 29
+    assert workout.avg_grade_pct == 0.01
+    assert workout.total_work_j == 639616
+    assert workout.device_normalized_power == 182
+    assert workout.device_intensity_factor == 0.865
+    assert workout.device_training_stress_score == 101.7
+
+
 def test_import_fit_file_accepts_file_like_object() -> None:
     with VALID_FIXTURE.open("rb") as fh:
         workout = import_fit_file(fh)
