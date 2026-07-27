@@ -188,3 +188,28 @@
 **Begründung:** `hypothesis` fand einen Fall (drei identische Werte ≈700000), bei dem `sum/len` durch Rundung minimal unter das exakte Minimum fällt — auch `statistics.fmean` zeigt das. Eigenschaft von IEEE-754, kein Fehler in der Berechnung.
 
 ---
+
+### Erweiterte Kennzahlen: Gerätewerte übernehmen vs. selbst rechnen
+
+**Entscheidung:** `Workout` bekommt neue `device_*`/`total_*`-Felder (`total_ascent_m`, `total_descent_m`, `avg_grade_pct`, `total_work_j`, `device_normalized_power`, `device_intensity_factor`, `device_training_stress_score`) direkt aus der FIT-Session-Message. Höhenmeter, Steigung und Arbeit (`work_kj`) übernehmen diese Werte; NP/IF/TSS werden selbst berechnet und gegen die Gerätewerte validiert.
+
+**Begründung:** Höhenmeter-Erkennung braucht Rauschfilterung der Barometer-Rohdaten — ein naives Aufsummieren der `altitude_m`-Deltas wäre kein besserer Nachbau, sondern ein schlechterer.
+NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Geräte-Session-Wert gibt. der Ganz-Workout-Fall ist nur ein Spezialfall und lässt sich sauber testen (eigene NP=178.8 W vs. Gerät 182 W, IF=0.851 vs. 0.865, TSS=99.8 vs. 101.7 — plausibel nah, nicht identisch, vermutlich weil das Gerät die 30s-Fenster anders an Pausen behandelt).
+
+---
+
+### TRIMP, Efficiency Factor, Decoupling: keine Geräte-Entsprechung
+
+**Entscheidung:** `trimp()` (Banister, nur männliche Konstanten 0.64/1.92), `efficiency_factor()` und `decoupling_pct()` sind vollständig eigene Berechnungen in `analysis/load.py` bzw. `analysis/efficiency.py`.
+
+**Begründung:** Keines dieser Werte liefert das Gerät. TRIMP nutzt dieselbe Pausen-Schwelle wie `moving_time` (`PAUSE_GAP_THRESHOLD`, dafür aus `analysis/workout.py` exportiert statt privat), damit eine Auto-Pause keinen Trainingsreiz vortäuscht. `decoupling_pct` splittet nach Record-Index (nicht nach Zeit) — einfacher, bei nur 5,7 % Pausenanteil in der echten Datei eine vertretbare Näherung.
+
+---
+
+### FTP/hr_rest/hr_max als durchgereichte Parameter, kein Autoload
+
+**Entscheidung:** Jede Funktion, die FTP oder HF-Grenzwerte braucht, nimmt sie als Parameter (Default `None` → Ergebnis `None`). Aufrufer übergeben `workout.ftp_watts` selbst, es gibt keinen automatischen Rückgriff darauf innerhalb der Funktionen.
+
+**Begründung:** `hr_rest`/`hr_max` gibt es ohnehin in keiner FIT-Datei
+
+---
