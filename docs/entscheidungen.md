@@ -219,4 +219,13 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Entscheidung:** `heart_rate_zone_distribution()` in `analysis/heart_rate_zones.py` nutzt die Herzfrequenzreserve (`HRR = (HF - hr_rest) / (hr_max - hr_rest)`), nicht simples %HFmax. `hr_rest`/`hr_max` sind Parameter wie bei TRIMP.
 
 **Begründung:** Genauer als %HFmax, weil unterschiedliche Ruheherzfrequenzen bei gleicher Max-HF unterschiedliche aerobe Basis widerspiegeln genau der Vorteil, den eine selbst gebaute Anwendung gegenüber Standardwerten hat.
+
+---
+
+### Meilenstein-Reihenfolge: SQLite nach Streamlit statt davor
+
+**Entscheidung:** SQLite-Speicherung (ursprünglich Meilenstein 7) wandert hinter Diagramme/Kalenderansicht, Intervallanalyse und Streamlit-Oberfläche, neu auf Position 10.
+
+**Begründung:** Schema und Zugriffsmuster sollen sich an den tatsächlichen Anforderungen der Oberfläche orientieren statt spekulativ vorher entworfen zu werden
+
 ---
