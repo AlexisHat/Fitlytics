@@ -222,6 +222,14 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 ---
 
+### Leistungszonen: vier gängige Modelle zur Auswahl
+
+**Entscheidung:** `power_zone_distribution()` in `analysis/power_zones.py` lässt zwischen vier Zonenmodellen wählen (polarisiert 3, klassisch 5, British Cycling 6, Coggan/Allen 7), Default Coggan/Allen 7.
+
+**Begründung:** Anders als bei HF-Zonen gibt es bei Leistungszonen kein einzelnes Standardmodell — diese vier sind die mir bekannten, gängigsten Einteilungen.
+
+---
+
 ### Meilenstein-Reihenfolge: SQLite nach Streamlit statt davor
 
 **Entscheidung:** SQLite-Speicherung (ursprünglich Meilenstein 7) wandert hinter Diagramme/Kalenderansicht, Intervallanalyse und Streamlit-Oberfläche, neu auf Position 10.
