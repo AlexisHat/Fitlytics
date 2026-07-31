@@ -6,10 +6,9 @@ from itertools import pairwise
 import deal
 import pytest
 
+from analysis.constants import DEFAULT_POWER_ZONE_MODEL, PowerZoneModel
 from analysis.power_zones import (
     _ZONE_FRACTIONS,
-    DEFAULT_POWER_ZONE_MODEL,
-    PowerZoneModel,
     _accumulate_zone_durations,
     _scale_to_watts,
     power_zone_distribution,

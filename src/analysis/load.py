@@ -18,7 +18,7 @@ from itertools import pairwise
 
 import deal
 
-from analysis.workout import PAUSE_GAP_THRESHOLD
+from analysis.constants import PAUSE_GAP_THRESHOLD
 from models import RecordPoint
 
 _NP_WINDOW = 30

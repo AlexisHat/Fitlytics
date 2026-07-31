@@ -23,7 +23,7 @@ from itertools import pairwise
 import deal
 from pydantic import BaseModel
 
-from analysis.workout import PAUSE_GAP_THRESHOLD
+from analysis.constants import PAUSE_GAP_THRESHOLD
 from models import RecordPoint
 
 _ZONE_UPPER_BOUNDS_PCT = (0.60, 0.70, 0.80, 0.90)

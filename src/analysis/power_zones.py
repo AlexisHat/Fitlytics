@@ -20,36 +20,17 @@ attributed to no zone, the same as elsewhere in the analysis.
 from bisect import bisect_left
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from enum import StrEnum
 from itertools import pairwise
 
 import deal
 from pydantic import BaseModel, ConfigDict, NonNegativeFloat, PositiveInt
 
-from analysis.workout import PAUSE_GAP_THRESHOLD
+from analysis.constants import (
+    DEFAULT_POWER_ZONE_MODEL,
+    PAUSE_GAP_THRESHOLD,
+    PowerZoneModel,
+)
 from models import RecordPoint
-
-
-class PowerZoneModel(StrEnum):
-    """Selectable definitions of FTP-based cycling power zones.
-
-    Attributes:
-        POLARIZED_3: Three zones around the two ventilatory thresholds, as
-            used in polarized-training literature (Seiler).
-        CLASSIC_5: Five zones, the Coggan model with its three high-intensity
-            zones collapsed into one.
-        BRITISH_CYCLING_6: Six zones, the Coggan model without the separate
-            neuromuscular sprint zone.
-        COGGAN_7: Seven zones (Coggan/Allen). Default model.
-    """
-
-    POLARIZED_3 = "polarized_3"
-    CLASSIC_5 = "classic_5"
-    BRITISH_CYCLING_6 = "british_cycling_6"
-    COGGAN_7 = "coggan_7"
-
-
-DEFAULT_POWER_ZONE_MODEL = PowerZoneModel.COGGAN_7
 
 
 class PowerZone(BaseModel):

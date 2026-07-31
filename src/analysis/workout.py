@@ -2,18 +2,13 @@
 
 from datetime import timedelta
 from itertools import pairwise
-from typing import Final
 
 import deal
 from pydantic import BaseModel
 
+from analysis.constants import PAUSE_GAP_THRESHOLD
 from analysis.metrics import average
 from models import RecordPoint, Workout
-
-PAUSE_GAP_THRESHOLD: Final = timedelta(seconds=2)
-"""Records are 1s apart while a device is actively recording (seen in every
-real workout file); a wider gap means recording stopped, whether from
-auto-pause or lost signal. 2s sits safely between the two."""
 
 
 class WorkoutMetrics(BaseModel):
