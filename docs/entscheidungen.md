@@ -200,7 +200,7 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 ### TRIMP, Efficiency Factor, Decoupling: keine Geräte-Entsprechung
 
-**Entscheidung:** `trimp()` (Banister, nur männliche Konstanten 0.64/1.92), `efficiency_factor()` und `decoupling_pct()` sind vollständig eigene Berechnungen in `analysis/load.py` bzw. `analysis/efficiency.py`.
+**Entscheidung:** `trimp()`, `efficiency_factor()` und `decoupling_pct()` sind vollständig eigene Berechnungen in `analysis/load.py` bzw. `analysis/efficiency.py`.
 
 **Begründung:** Keines dieser Werte liefert das Gerät. TRIMP nutzt dieselbe Pausen-Schwelle wie `moving_time` (`PAUSE_GAP_THRESHOLD`, dafür aus `analysis/workout.py` exportiert statt privat), damit eine Auto-Pause keinen Trainingsreiz vortäuscht. `decoupling_pct` splittet nach Record-Index (nicht nach Zeit) — einfacher, bei nur 5,7 % Pausenanteil in der echten Datei eine vertretbare Näherung.
 
@@ -212,4 +212,11 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 **Begründung:** `hr_rest`/`hr_max` gibt es ohnehin in keiner FIT-Datei
 
+---
+
+### HF-Zonenverteilung nach Karvonen statt %HFmax oder Geräte-Zonen
+
+**Entscheidung:** `heart_rate_zone_distribution()` in `analysis/heart_rate_zones.py` nutzt die Herzfrequenzreserve (`HRR = (HF - hr_rest) / (hr_max - hr_rest)`), nicht simples %HFmax. `hr_rest`/`hr_max` sind Parameter wie bei TRIMP.
+
+**Begründung:** Genauer als %HFmax, weil unterschiedliche Ruheherzfrequenzen bei gleicher Max-HF unterschiedliche aerobe Basis widerspiegeln genau der Vorteil, den eine selbst gebaute Anwendung gegenüber Standardwerten hat.
 ---
