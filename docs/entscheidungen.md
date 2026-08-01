@@ -237,3 +237,13 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Begründung:** Schema und Zugriffsmuster sollen sich an den tatsächlichen Anforderungen der Oberfläche orientieren statt spekulativ vorher entworfen zu werden
 
 ---
+
+## Meilenstein 7: Diagramme
+
+### Zwei Plot-Bibliotheken statt einer, nach Zweck getrennt
+
+**Entscheidung:** `plotly` kommt als zusätzliche Abhängigkeit dazu und wird ausschließlich für die interaktive Multi-Panel-Zeitreihe eines einzelnen Trainings verwendet
+
+**Begründung:** Für die Visualisierung wird Plotly anstelle von Matplotlib verwendet, da Plotly interaktive Diagramme mit Funktionen wie Zoom, Hover-Informationen und der gezielten Auswahl einzelner Datenbereiche ermöglicht.
+
+---
