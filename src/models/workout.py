@@ -21,6 +21,8 @@ class RecordPoint(BaseModel):
         distance_m: Cumulative distance in metres, if recorded.
         speed_ms: Instantaneous speed in metres per second, if recorded.
         altitude_m: Altitude in metres, if recorded; may be negative.
+        grade_pct: Instantaneous gradient in percent, if recorded; may be
+            negative on a descent.
     """
 
     timestamp: UtcDatetime
@@ -30,6 +32,7 @@ class RecordPoint(BaseModel):
     distance_m: NonNegativeFloat | None = None
     speed_ms: NonNegativeFloat | None = None
     altitude_m: float | None = None
+    grade_pct: float | None = None
 
 
 class Workout(BaseModel):

@@ -110,3 +110,12 @@ def test_build_record_point_falls_back_to_plain_altitude() -> None:
     point = _build_record_point(fields)
 
     assert point.altitude_m == 41.0
+
+
+def test_build_record_point_maps_grade() -> None:
+    timestamp = datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC)
+    fields = {"timestamp": timestamp, "grade": -1.23}
+
+    point = _build_record_point(fields)
+
+    assert point.grade_pct == -1.23

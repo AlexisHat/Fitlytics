@@ -9,6 +9,7 @@ from errors import DataValidationError
 from models import RecordPoint, Workout
 from validation.ranges import (
     CADENCE_RPM,
+    GRADE_PCT,
     HEART_RATE_BPM,
     POWER_W,
     SPEED_MS,
@@ -45,6 +46,7 @@ def _clean_record(point: RecordPoint) -> tuple[RecordPoint, list[str]]:
         ("power", point.power, POWER_W),
         ("cadence", point.cadence, CADENCE_RPM),
         ("speed_ms", point.speed_ms, SPEED_MS),
+        ("grade_pct", point.grade_pct, GRADE_PCT),
     )
 
     update: dict[str, float | None] = {}

@@ -76,6 +76,15 @@ def test_record_point_allows_negative_altitude() -> None:
     assert point.altitude_m == -4.2
 
 
+def test_record_point_allows_negative_grade() -> None:
+    """A descent is a real gradient, not a sensor error."""
+    point = RecordPoint(
+        timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC), grade_pct=-3.82
+    )
+
+    assert point.grade_pct == -3.82
+
+
 def test_workout_allows_negative_avg_grade() -> None:
     """A net-downhill course is a real profile, not a sensor error."""
     workout = Workout(

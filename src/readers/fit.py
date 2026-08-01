@@ -56,6 +56,7 @@ def _build_record_point(fields: dict[str, Any]) -> RecordPoint:
         distance_m=fields.get("distance"),
         speed_ms=speed_ms,
         altitude_m=altitude_m,
+        grade_pct=fields.get("grade"),
     )
 
 

@@ -30,6 +30,10 @@ CADENCE_RPM: Final[Bounds] = (0.0, 200.0)
 SPEED_MS: Final[Bounds] = (0.0, 40.0)
 """40 m/s is 144 km/h — faster than any descent, so it is a GPS glitch."""
 
+GRADE_PCT: Final[Bounds] = (-40.0, 40.0)
+"""The steepest paved roads worldwide sit near 35%; beyond that is a
+barometer/GPS artefact rather than a real gradient."""
+
 RESTING_HR_BPM: Final[Bounds] = (20.0, 120.0)
 """Trained endurance athletes reach the low 30s; 20 is the safety margin."""
 

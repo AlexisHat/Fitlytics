@@ -21,6 +21,7 @@ def _point(
     power: int | None = None,
     cadence: int | None = None,
     speed_ms: float | None = None,
+    grade_pct: float | None = None,
 ) -> RecordPoint:
     return RecordPoint(
         timestamp=START + timedelta(seconds=offset_s),
@@ -28,6 +29,7 @@ def _point(
         power=power,
         cadence=cadence,
         speed_ms=speed_ms,
+        grade_pct=grade_pct,
     )
 
 
@@ -60,6 +62,25 @@ def test_validate_workout_discards_implausible_heart_rate() -> None:
     assert cleaned.records[0].heart_rate is None
     assert cleaned.records[0].power == 210
     assert report.discarded == {"heart_rate": 1}
+
+
+def test_validate_workout_keeps_negative_grade() -> None:
+    """A descent is a plausible gradient, not a dropout."""
+    workout = _workout(_point(0, grade_pct=-3.82))
+
+    cleaned, report = validate_workout(workout)
+
+    assert cleaned.records[0].grade_pct == -3.82
+    assert report.is_clean
+
+
+def test_validate_workout_discards_implausible_grade() -> None:
+    workout = _workout(_point(0, grade_pct=55.0))
+
+    cleaned, report = validate_workout(workout)
+
+    assert cleaned.records[0].grade_pct is None
+    assert report.discarded == {"grade_pct": 1}
 
 
 def test_validate_workout_discards_dropout_heart_rate() -> None:
