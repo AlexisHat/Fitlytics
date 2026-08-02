@@ -45,10 +45,11 @@ _FULL_RECORDS = [
 ]
 
 
-def test_build_timeline_figure_has_one_trace_per_available_panel() -> None:
+def test_build_timeline_figure_has_one_trace_per_panel_plus_raw_power() -> None:
+    """4 panels, but the power one also draws a faint raw trace behind it."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert len(fig.data) == 4
+    assert len(fig.data) == 5
 
 
 def test_build_timeline_figure_orders_panels_altitude_power_hr_speed() -> None:
@@ -56,6 +57,7 @@ def test_build_timeline_figure_orders_panels_altitude_power_hr_speed() -> None:
 
     assert [trace.name for trace in fig.data] == [
         "Höhe (m)",
+        "Leistung (W)",
         "Leistung (W)",
         "Herzfrequenz (bpm)",
         "Geschwindigkeit (km/h)",
@@ -65,7 +67,7 @@ def test_build_timeline_figure_orders_panels_altitude_power_hr_speed() -> None:
 def test_build_timeline_figure_assigns_each_panel_its_own_yaxis() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert [trace.yaxis for trace in fig.data] == ["y", "y2", "y3", "y4"]
+    assert [trace.yaxis for trace in fig.data] == ["y", "y2", "y2", "y3", "y4"]
 
 
 def test_build_timeline_figure_puts_every_panel_on_one_shared_xaxis() -> None:
@@ -74,24 +76,60 @@ def test_build_timeline_figure_puts_every_panel_on_one_shared_xaxis() -> None:
     cursor."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert [trace.xaxis for trace in fig.data] == ["x", "x", "x", "x"]
+    assert [trace.xaxis for trace in fig.data] == ["x"] * 5
     assert "xaxis2" not in fig.layout
     assert fig.layout.xaxis.anchor == "y4"
 
 
-def test_build_timeline_figure_leaves_a_gap_at_a_missing_sample() -> None:
-    """A single dropout must break the line, not be silently skipped."""
+def test_build_timeline_figure_leaves_a_gap_at_a_missing_raw_sample() -> None:
+    """A single dropout must break the raw line, not be silently skipped."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    power_trace = fig.data[1]
-    assert math.isnan(power_trace.y[1])
+    raw_power_trace = fig.data[1]
+    assert math.isnan(raw_power_trace.y[1])
+
+
+def test_build_timeline_figure_shows_the_raw_power_reading_in_hover() -> None:
+    """The exact instantaneous watt value is more useful to point at than a
+    30s average, even though the smoothed line is what stays visible on top."""
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    raw_power_trace = fig.data[1]
+    assert raw_power_trace.hovertemplate == "Leistung (W): %{y:.0f}<extra></extra>"
+    assert raw_power_trace.showlegend is False
+    assert raw_power_trace.opacity == pytest.approx(0.35)
+
+
+def test_build_timeline_figure_silences_hover_on_the_smoothed_power_line() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    rolling_power_trace = fig.data[2]
+    assert rolling_power_trace.hoverinfo == "skip"
+
+
+def test_build_timeline_figure_hides_the_legend() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.showlegend is False
+
+
+def test_build_timeline_figure_gives_altitude_the_smallest_panel() -> None:
+    """Altitude is context, power/heart rate carry the most information."""
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    def _panel_height(domain: tuple[float, float]) -> float:
+        return domain[1] - domain[0]
+
+    altitude_height = _panel_height(fig.layout.yaxis.domain)
+    power_height = _panel_height(fig.layout.yaxis2.domain)
+    assert altitude_height < power_height
 
 
 def test_build_timeline_figure_fills_the_altitude_panel_as_a_terrain_profile() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
     assert fig.data[0].fill == "tozeroy"
-    assert fig.data[1].fill is None
+    assert fig.data[2].fill is None
 
 
 def test_build_timeline_figure_drops_panels_without_data() -> None:
@@ -162,7 +200,7 @@ def test_build_timeline_figure_labels_the_altitude_hover_in_german() -> None:
 def test_build_timeline_figure_gives_speed_one_decimal_in_the_hover() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    speed_trace = fig.data[3]
+    speed_trace = fig.data[4]
     assert (
         speed_trace.hovertemplate == "Geschwindigkeit (km/h): %{y:.1f}<extra></extra>"
     )
