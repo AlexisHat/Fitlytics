@@ -9,7 +9,7 @@ import pytest
 from errors import AnalysisError
 from models import RecordPoint
 from plots.series import build_time_series
-from plots.timeline import build_timeline_figure
+from plots.timeline import XAxisMode, build_timeline_figure
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
 
@@ -20,6 +20,7 @@ def _point(
     power: int | None = None,
     speed_ms: float | None = None,
     altitude_m: float | None = None,
+    distance_m: float | None = None,
 ) -> RecordPoint:
     return RecordPoint(
         timestamp=START + timedelta(seconds=offset_s),
@@ -27,13 +28,20 @@ def _point(
         power=power,
         speed_ms=speed_ms,
         altitude_m=altitude_m,
+        distance_m=distance_m,
     )
 
 
 _FULL_RECORDS = [
-    _point(0, heart_rate=140, power=200, speed_ms=8.0, altitude_m=100.0),
-    _point(1, heart_rate=141, power=None, speed_ms=8.5, altitude_m=101.0),
-    _point(2, heart_rate=142, power=220, speed_ms=9.0, altitude_m=102.0),
+    _point(
+        0, heart_rate=140, power=200, speed_ms=8.0, altitude_m=100.0, distance_m=0.0
+    ),
+    _point(
+        1, heart_rate=141, power=None, speed_ms=8.5, altitude_m=101.0, distance_m=8.0
+    ),
+    _point(
+        2, heart_rate=142, power=220, speed_ms=9.0, altitude_m=102.0, distance_m=17.0
+    ),
 ]
 
 
@@ -158,3 +166,30 @@ def test_build_timeline_figure_gives_speed_one_decimal_in_the_hover() -> None:
     assert (
         speed_trace.hovertemplate == "Geschwindigkeit (km/h): %{y:.1f}<extra></extra>"
     )
+
+
+def test_build_timeline_figure_defaults_to_the_time_axis() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.xaxis.type == "date"
+    assert fig.layout.xaxis.title.text == "Zeit"
+
+
+def test_build_timeline_figure_switches_to_the_distance_axis() -> None:
+    fig = build_timeline_figure(
+        build_time_series(_FULL_RECORDS), x_axis=XAxisMode.DISTANCE
+    )
+
+    assert fig.layout.xaxis.type == "linear"
+    assert fig.layout.xaxis.title.text == "Distanz (km)"
+    assert fig.data[0].x.tolist() == pytest.approx([0.0, 0.008, 0.017])
+
+
+def test_build_timeline_figure_rejects_distance_axis_without_distance() -> None:
+    records = [
+        _point(0, heart_rate=140, distance_m=None),
+        _point(1, heart_rate=141, distance_m=None),
+    ]
+
+    with pytest.raises(AnalysisError):
+        build_timeline_figure(build_time_series(records), x_axis=XAxisMode.DISTANCE)

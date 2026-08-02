@@ -1,6 +1,7 @@
 """Panel-driven multi-panel figure for a single workout's time series."""
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Final, NamedTuple
 
 import plotly.graph_objects as go
@@ -8,6 +9,19 @@ import polars as pl
 
 from errors import AnalysisError
 from plots.series import available_channels
+
+
+class XAxisMode(StrEnum):
+    """Which quantity the timeline figure's shared x-axis plots against.
+
+    Attributes:
+        TIME: Elapsed time since the first record, formatted as a clock.
+        DISTANCE: Cumulative distance in kilometres.
+    """
+
+    TIME = "time"
+    DISTANCE = "distance"
+
 
 _ELAPSED_AXIS_EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
 """Arbitrary anchor for the elapsed-time axis; only the time-of-day part of
@@ -86,6 +100,53 @@ def _elapsed_time_axis(series: pl.DataFrame) -> pl.Series:
     )["x"]
 
 
+class _XAxisSpec(NamedTuple):
+    """Layout for one x-axis display mode.
+
+    Attributes:
+        title: German axis title.
+        axis_type: Plotly axis type — ``"date"`` for elapsed time (so
+            ``%H:%M:%S`` formatting applies), ``"linear"`` for distance.
+        tickformat: d3-format (or d3-time-format, for a date axis) spec
+            for the tick labels.
+        hoverformat: Same, for the unified hover header.
+        ticksuffix: Appended to each tick label, e.g. ``" km"``.
+    """
+
+    title: str
+    axis_type: str
+    tickformat: str
+    hoverformat: str
+    ticksuffix: str = ""
+
+
+_X_AXIS_SPECS: Final[dict[XAxisMode, _XAxisSpec]] = {
+    XAxisMode.TIME: _XAxisSpec("Zeit", "date", "%H:%M:%S", "%H:%M:%S"),
+    XAxisMode.DISTANCE: _XAxisSpec("Distanz (km)", "linear", ",.0f", ".2f", " km"),
+}
+
+
+def _x_values(series: pl.DataFrame, x_axis: XAxisMode) -> pl.Series:
+    """Get the shared x-axis values for the requested display mode.
+
+    Args:
+        series: A time series built by :func:`plots.series.build_time_series`.
+        x_axis: Which quantity to plot against.
+
+    Returns:
+        Elapsed time as datetimes (see :func:`_elapsed_time_axis`) for
+        :attr:`XAxisMode.TIME`, or cumulative distance in km for
+        :attr:`XAxisMode.DISTANCE`.
+
+    >>> series = pl.DataFrame({"elapsed_s": [0.0, 1.0], "distance_km": [0.0, 0.01]})
+    >>> _x_values(series, XAxisMode.DISTANCE).to_list()
+    [0.0, 0.01]
+    """
+    if x_axis is XAxisMode.DISTANCE:
+        return series["distance_km"]
+    return _elapsed_time_axis(series)
+
+
 def _panel_y_domains(count: int) -> list[tuple[float, float]]:
     """Compute each panel's vertical slice of the plot area, top to bottom.
 
@@ -154,12 +215,16 @@ def _panel_trace(
     )
 
 
-def build_timeline_figure(series: pl.DataFrame) -> go.Figure:
+def build_timeline_figure(
+    series: pl.DataFrame, x_axis: XAxisMode = XAxisMode.TIME
+) -> go.Figure:
     """Build the workout timeline figure from the available panels.
 
     Args:
         series: A time series built by
             :func:`plots.series.build_time_series`.
+        x_axis: Whether the shared x-axis plots elapsed time or cumulative
+            distance. Defaults to time.
 
     Returns:
         A plotly figure with one panel per available channel, in the fixed
@@ -169,7 +234,9 @@ def build_timeline_figure(series: pl.DataFrame) -> go.Figure:
         one.
 
     Raises:
-        AnalysisError: If none of the panel columns carry any data.
+        AnalysisError: If none of the panel columns carry any data, or if
+            ``x_axis`` is :attr:`XAxisMode.DISTANCE` but the workout has
+            no distance channel.
 
     >>> from datetime import UTC, datetime, timedelta
     >>> from models import RecordPoint
@@ -189,8 +256,11 @@ def build_timeline_figure(series: pl.DataFrame) -> go.Figure:
     panels = [spec for spec in _PANELS if spec.column in channels]
     if not panels:
         raise AnalysisError("no chartable channel available for the timeline")
+    if x_axis is XAxisMode.DISTANCE and "distance_km" not in channels:
+        raise AnalysisError("distance x-axis requested but no distance was recorded")
 
-    x = _elapsed_time_axis(series)
+    x = _x_values(series, x_axis)
+    axis_spec = _X_AXIS_SPECS[x_axis]
     domains = _panel_y_domains(len(panels))
     bottom_yaxis = "y" if len(panels) == 1 else f"y{len(panels)}"
 
@@ -198,16 +268,17 @@ def build_timeline_figure(series: pl.DataFrame) -> go.Figure:
         "hovermode": "x unified",
         "height": _BASE_HEIGHT_PX + _PANEL_HEIGHT_PX * len(panels),
         "xaxis": {
-            "type": "date",
-            "tickformat": "%H:%M:%S",
-            "hoverformat": "%H:%M:%S",
+            "type": axis_spec.axis_type,
+            "tickformat": axis_spec.tickformat,
+            "hoverformat": axis_spec.hoverformat,
+            "ticksuffix": axis_spec.ticksuffix,
             "anchor": bottom_yaxis,
             "showspikes": True,
             "spikemode": "across",
             "spikesnap": "cursor",
             "spikethickness": 1,
             "rangeslider": {"visible": True},
-            "title": {"text": "Zeit"},
+            "title": {"text": axis_spec.title},
         },
         "annotations": [],
     }
