@@ -2,6 +2,7 @@
 
 import math
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 
 import pytest
 
@@ -53,19 +54,21 @@ def test_build_timeline_figure_orders_panels_altitude_power_hr_speed() -> None:
     ]
 
 
-def test_build_timeline_figure_assigns_each_panel_its_own_row() -> None:
+def test_build_timeline_figure_assigns_each_panel_its_own_yaxis() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert [trace.xaxis for trace in fig.data] == ["x", "x2", "x3", "x4"]
     assert [trace.yaxis for trace in fig.data] == ["y", "y2", "y3", "y4"]
 
 
-def test_build_timeline_figure_couples_every_xaxis_to_the_bottom_panel() -> None:
+def test_build_timeline_figure_puts_every_panel_on_one_shared_xaxis() -> None:
+    """A single real x-axis, not four range-matched ones, is what makes the
+    hover crosshair span every panel instead of just the one under the
+    cursor."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert fig.layout.xaxis.matches == "x4"
-    assert fig.layout.xaxis2.matches == "x4"
-    assert fig.layout.xaxis3.matches == "x4"
+    assert [trace.xaxis for trace in fig.data] == ["x", "x", "x", "x"]
+    assert "xaxis2" not in fig.layout
+    assert fig.layout.xaxis.anchor == "y4"
 
 
 def test_build_timeline_figure_leaves_a_gap_at_a_missing_sample() -> None:
@@ -96,3 +99,62 @@ def test_build_timeline_figure_rejects_a_series_with_no_chartable_channel() -> N
 
     with pytest.raises(AnalysisError):
         build_timeline_figure(build_time_series(records))
+
+
+def test_build_timeline_figure_uses_unified_hover() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.hovermode == "x unified"
+
+
+def test_build_timeline_figure_shows_a_crosshair_spanning_all_panels() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.xaxis.showspikes is True
+    assert fig.layout.xaxis.spikemode == "across"
+    for yaxis in (fig.layout.yaxis, fig.layout.yaxis2, fig.layout.yaxis3):
+        assert yaxis.showspikes is True
+        assert yaxis.spikemode == "toaxis"
+
+
+def test_build_timeline_figure_shows_a_rangeslider() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.xaxis.rangeslider.visible is True
+
+
+def test_build_timeline_figure_stacks_panel_domains_top_to_bottom() -> None:
+    """Panel i+1 (further down the figure) must not overlap panel i above it."""
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    domains = [
+        fig.layout.yaxis.domain,
+        fig.layout.yaxis2.domain,
+        fig.layout.yaxis3.domain,
+        fig.layout.yaxis4.domain,
+    ]
+    for (low, _), (_, next_high) in pairwise(domains):
+        assert next_high <= low
+
+
+def test_build_timeline_figure_formats_the_time_axis_as_a_clock() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.xaxis.type == "date"
+    assert fig.layout.xaxis.tickformat == "%H:%M:%S"
+
+
+def test_build_timeline_figure_labels_the_altitude_hover_in_german() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    altitude_trace = fig.data[0]
+    assert altitude_trace.hovertemplate == "Höhe (m): %{y:.0f}<extra></extra>"
+
+
+def test_build_timeline_figure_gives_speed_one_decimal_in_the_hover() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    speed_trace = fig.data[3]
+    assert (
+        speed_trace.hovertemplate == "Geschwindigkeit (km/h): %{y:.1f}<extra></extra>"
+    )

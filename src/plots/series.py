@@ -1,16 +1,7 @@
 """Time-series preparation for a single workout's charts.
 
-Turns a workout's records into a plotting-ready table: units converted once
-here rather than in every chart, plus a time-based rolling mean of power.
-The rolling window is anchored to elapsed wall-clock time
-(``rolling_mean_by``) rather than a fixed sample count, unlike
-``analysis.load.normalized_power``'s 30-sample window — a multi-second pause
-would otherwise blend pre- and post-pause power into the same average.
-
-A channel the device never recorded at all (e.g. no power meter) comes
-through as an all-null column rather than being dropped, so every table has
-the same shape regardless of which sensors were present;
-:func:`available_channels` reports which columns actually carry data.
+Converts a workout's records into a plotting-ready table with converted
+units and a time-based rolling mean of power.
 """
 
 from itertools import pairwise

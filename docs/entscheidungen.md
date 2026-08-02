@@ -247,3 +247,11 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Begründung:** Für die Visualisierung wird Plotly anstelle von Matplotlib verwendet, da Plotly interaktive Diagramme mit Funktionen wie Zoom, Hover-Informationen und der gezielten Auswahl einzelner Datenbereiche ermöglicht.
 
 ---
+
+### Eine geteilte x-Achse mit gestapelten y-Achsen statt `make_subplots`
+
+**Entscheidung:** `build_timeline_figure` baut die Panels manuell über eine gemeinsame `xaxis` mit vier `domain`-gestaffelten y-Achsen statt über `plotly.subplots.make_subplots`.
+
+**Begründung:** Bei `make_subplots` bleiben Hover, Spikelines und Tooltip auf das Panel unter dem Mauszeiger beschränkt — `shared_xaxes` koppelt nur Zoom/Pan, keine Hover-Events. Erst eine echte gemeinsame x-Achse lässt die Spike-Linie über alle Panels laufen, im Browser gegen echte Daten verifiziert.
+
+---
