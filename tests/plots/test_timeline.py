@@ -4,12 +4,17 @@ import math
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
+import polars as pl
 import pytest
 
 from errors import AnalysisError
 from models import RecordPoint
 from plots.series import build_time_series
-from plots.timeline import XAxisMode, build_timeline_figure
+from plots.timeline import (
+    XAxisMode,
+    _trim_to_first_fully_measured_row,
+    build_timeline_figure,
+)
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
 
@@ -231,6 +236,71 @@ def test_build_timeline_figure_switches_to_the_distance_axis() -> None:
     assert fig.layout.xaxis.type == "linear"
     assert fig.layout.xaxis.title.text == "Distanz (km)"
     assert fig.data[0].x.tolist() == pytest.approx([0.0, 0.008, 0.017])
+
+
+def test_trim_to_first_fully_measured_row_drops_leading_incomplete_rows() -> None:
+    series = pl.DataFrame(
+        {
+            "elapsed_s": [0.0, 1.0, 2.0, 3.0],
+            "power": [100, 110, 120, 130],
+            "altitude_relative_m": [None, None, 5.0, 6.0],
+        }
+    )
+
+    trimmed = _trim_to_first_fully_measured_row(
+        series, ["power", "altitude_relative_m"]
+    )
+
+    assert trimmed["elapsed_s"].to_list() == [0.0, 1.0]
+    assert trimmed["power"].to_list() == [120, 130]
+
+
+def test_trim_to_first_fully_measured_row_keeps_later_gaps() -> None:
+    """Only the leading gap is trimmed; a later dropout still shows as a gap."""
+    series = pl.DataFrame(
+        {
+            "elapsed_s": [0.0, 1.0, 2.0, 3.0],
+            "power": [100, 110, None, 130],
+            "altitude_relative_m": [5.0, 6.0, 7.0, 8.0],
+        }
+    )
+
+    trimmed = _trim_to_first_fully_measured_row(
+        series, ["power", "altitude_relative_m"]
+    )
+
+    assert trimmed["power"].to_list() == [100, 110, None, 130]
+
+
+def test_trim_to_first_fully_measured_row_keeps_series_if_never_all_present() -> None:
+    series = pl.DataFrame(
+        {
+            "elapsed_s": [0.0, 1.0],
+            "power": [100, None],
+            "altitude_relative_m": [None, 5.0],
+        }
+    )
+
+    trimmed = _trim_to_first_fully_measured_row(
+        series, ["power", "altitude_relative_m"]
+    )
+
+    assert trimmed["elapsed_s"].to_list() == [0.0, 1.0]
+
+
+def test_build_timeline_figure_trims_a_staggered_sensor_start() -> None:
+    """A slow GPS/barometer lock must not leave a blank lead-in on the chart."""
+    records = [
+        _point(0, heart_rate=140, power=200),
+        _point(1, heart_rate=141, power=205),
+        _point(2, heart_rate=142, power=210, altitude_m=100.0),
+        _point(3, heart_rate=143, power=215, altitude_m=101.0),
+    ]
+
+    fig = build_timeline_figure(build_time_series(records))
+
+    altitude_trace = fig.data[0]
+    assert altitude_trace.y.tolist() == pytest.approx([0.0, 1.0])
 
 
 def test_build_timeline_figure_rejects_distance_axis_without_distance() -> None:

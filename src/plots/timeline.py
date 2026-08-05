@@ -309,6 +309,50 @@ def _raw_background_trace(
     )
 
 
+def _trim_to_first_fully_measured_row(
+    series: pl.DataFrame, required_columns: Sequence[str]
+) -> pl.DataFrame:
+    """Drop leading rows until every required column has a value.
+
+    A GPS or barometric sensor can take seconds to minutes to acquire a
+    signal, well after sensors like a heart-rate strap or power meter are
+    already reporting — showing that gap as a staggered start makes the
+    chart's overview strip look misaligned rather than simply incomplete.
+
+    Args:
+        series: A time series built by :func:`plots.series.build_time_series`.
+        required_columns: Columns that must all be non-null on the same row.
+
+    Returns:
+        ``series`` from its first fully-measured row onward, with
+        ``elapsed_s`` re-based to start at zero there. Unchanged if the
+        required columns are never all measured on the same row.
+
+    >>> series = pl.DataFrame(
+    ...     {
+    ...         "elapsed_s": [0.0, 1.0, 2.0],
+    ...         "power": [100, 110, 120],
+    ...         "altitude_relative_m": [None, None, 5.0],
+    ...     }
+    ... )
+    >>> trimmed = _trim_to_first_fully_measured_row(
+    ...     series, ["power", "altitude_relative_m"]
+    ... )
+    >>> trimmed["elapsed_s"].to_list()
+    [0.0]
+    >>> trimmed["power"].to_list()
+    [120]
+    """
+    mask = pl.all_horizontal([pl.col(c).is_not_null() for c in required_columns])
+    live_rows = series.with_row_index().filter(mask)
+    if live_rows.is_empty():
+        return series
+
+    trimmed = series.slice(live_rows["index"][0])
+    offset = trimmed["elapsed_s"][0]
+    return trimmed.with_columns((pl.col("elapsed_s") - offset).alias("elapsed_s"))
+
+
 def build_timeline_figure(
     series: pl.DataFrame, x_axis: XAxisMode = XAxisMode.TIME
 ) -> go.Figure:
@@ -326,7 +370,9 @@ def build_timeline_figure(
         zooming, panning and the hover crosshair on any panel move or
         appear in every panel at once, with a rangeslider below the bottom
         one. No legend, since every panel is already labelled by its own
-        heading.
+        heading. Leading rows before every shown panel's channel has a
+        value are dropped (see :func:`_trim_to_first_fully_measured_row`),
+        so a slow GPS or barometer lock doesn't stagger the start.
 
     Raises:
         AnalysisError: If none of the panel columns carry any data, or if
@@ -357,6 +403,9 @@ def build_timeline_figure(
         raise AnalysisError("no chartable channel available for the timeline")
     if x_axis is XAxisMode.DISTANCE and "distance_km" not in channels:
         raise AnalysisError("distance x-axis requested but no distance was recorded")
+
+    required_columns = {_DERIVED_FROM.get(spec.column, spec.column) for spec in panels}
+    series = _trim_to_first_fully_measured_row(series, sorted(required_columns))
 
     x = _x_values(series, x_axis)
     axis_spec = _X_AXIS_SPECS[x_axis]
