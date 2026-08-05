@@ -79,19 +79,34 @@ class _PanelSpec(NamedTuple):
 
 
 _PANELS: Final[tuple[_PanelSpec, ...]] = (
-    _PanelSpec("altitude_m", "Höhe (m)", "#a0785a", fill=True, height_weight=0.6),
+    _PanelSpec(
+        "altitude_relative_m",
+        "Höhe ggü. Start (m)",
+        "#a0785a",
+        fill=True,
+        height_weight=0.6,
+    ),
     _PanelSpec("power_rolling_30s", "Leistung (W)", "#c1440e", height_weight=1.2),
     _PanelSpec("heart_rate", "Herzfrequenz (bpm)", "#2ca02c", height_weight=1.2),
     _PanelSpec("speed_kmh", "Geschwindigkeit (km/h)", "#9467bd", hover_format=".1f"),
 )
 """Panels top to bottom; a panel is skipped if its underlying measured
-channel (see :data:`_RAW_COLUMNS`) is all null."""
+channel (see :data:`_DERIVED_FROM`) is all null."""
 
-_RAW_COLUMNS: Final[dict[str, str]] = {"power_rolling_30s": "power"}
-"""Maps a panel's smoothed column to the raw, measured one drawn faintly
-behind it, and doubles as the column :func:`available_channels` is checked
-against — a panel showing a rolling mean is only chartable if the raw
-measurement behind it exists."""
+_DERIVED_FROM: Final[dict[str, str]] = {
+    "power_rolling_30s": "power",
+    "altitude_relative_m": "altitude_m",
+}
+"""Maps a panel's displayed column to the measured channel it is derived
+from — a panel is only chartable if that underlying measurement exists,
+regardless of what :func:`available_channels` says about the derived
+column itself (which it never measured directly)."""
+
+_SHOW_RAW_BACKGROUND: Final[frozenset[str]] = frozenset({"power_rolling_30s"})
+"""Panels whose measured source (see :data:`_DERIVED_FROM`) is additionally
+drawn as a faint background line behind the main one, e.g. raw power behind
+its smoothed mean. Altitude is derived too, but has no such background —
+only its baseline changed, not its smoothing."""
 
 
 def _elapsed_time_axis(series: pl.DataFrame) -> pl.Series:
@@ -209,16 +224,16 @@ def _panel_trace(
 
     Returns:
         A scatter trace plotting ``spec.column`` against ``x``. A panel
-        listed in :data:`_RAW_COLUMNS` carries no hover label of its own —
-        the exact, unsmoothed reading is more useful to point at than the
-        smoothed one, so :func:`_raw_background_trace` answers hover for
-        that panel instead, even though this smoothed line is what stays
-        visible on top.
+        listed in :data:`_SHOW_RAW_BACKGROUND` carries no hover label of
+        its own — the exact, unsmoothed reading is more useful to point at
+        than the smoothed one, so :func:`_raw_background_trace` answers
+        hover for that panel instead, even though this smoothed line is
+        what stays visible on top.
 
     >>> series = pl.DataFrame(
     ...     {
     ...         "elapsed_s": [0.0, 1.0],
-    ...         "altitude_m": [10.0, 12.0],
+    ...         "altitude_relative_m": [0.0, 2.0],
     ...         "heart_rate": [140, 141],
     ...     }
     ... )
@@ -230,7 +245,7 @@ def _panel_trace(
     >>> _panel_trace(hr_spec, series, x, "y2").fill is None
     True
     """
-    has_raw_counterpart = spec.column in _RAW_COLUMNS
+    has_raw_counterpart = spec.column in _SHOW_RAW_BACKGROUND
     return go.Scatter(
         x=x,
         y=series[spec.column],
@@ -261,7 +276,7 @@ def _raw_background_trace(
 
     Args:
         spec: The panel to build the raw trace for.
-        raw_column: Column of the unsmoothed value, from :data:`_RAW_COLUMNS`.
+        raw_column: Column of the unsmoothed value, from :data:`_DERIVED_FROM`.
         series: A time series built by :func:`plots.series.build_time_series`.
         x: The shared elapsed-time axis, from :func:`_elapsed_time_axis`.
         yaxis: The plotly y-axis id this panel is drawn on, e.g. ``"y2"``.
@@ -336,7 +351,7 @@ def build_timeline_figure(
     panels = [
         spec
         for spec in _PANELS
-        if _RAW_COLUMNS.get(spec.column, spec.column) in channels
+        if _DERIVED_FROM.get(spec.column, spec.column) in channels
     ]
     if not panels:
         raise AnalysisError("no chartable channel available for the timeline")
@@ -389,8 +404,8 @@ def build_timeline_figure(
                 "font": {"size": 16},
             }
         )
-        raw_column = _RAW_COLUMNS.get(spec.column)
-        if raw_column is not None:
+        if spec.column in _SHOW_RAW_BACKGROUND:
+            raw_column = _DERIVED_FROM[spec.column]
             fig.add_trace(_raw_background_trace(spec, raw_column, series, x, yaxis_id))
         fig.add_trace(_panel_trace(spec, series, x, yaxis_id))
 

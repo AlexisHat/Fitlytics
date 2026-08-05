@@ -59,6 +59,31 @@ def test_build_time_series_converts_speed_to_kmh() -> None:
     assert series["speed_kmh"].to_list() == pytest.approx([36.0])
 
 
+def test_build_time_series_altitude_relative_starts_at_zero() -> None:
+    series = build_time_series(
+        [
+            _point(0, altitude_m=38.0),
+            _point(1, altitude_m=42.0),
+            _point(2, altitude_m=35.0),
+        ]
+    )
+
+    assert series["altitude_relative_m"].to_list() == pytest.approx([0.0, 4.0, -3.0])
+
+
+def test_build_time_series_altitude_relative_uses_first_non_null_as_baseline() -> None:
+    """A device may take a moment to lock the barometer at the very start."""
+    series = build_time_series(
+        [
+            _point(0, altitude_m=None),
+            _point(1, altitude_m=40.0),
+            _point(2, altitude_m=45.0),
+        ]
+    )
+
+    assert series["altitude_relative_m"].to_list() == pytest.approx([None, 0.0, 5.0])
+
+
 def test_build_time_series_rejects_empty_records() -> None:
     with pytest.raises(deal.PreContractError):
         build_time_series([])

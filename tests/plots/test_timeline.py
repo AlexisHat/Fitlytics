@@ -56,7 +56,7 @@ def test_build_timeline_figure_orders_panels_altitude_power_hr_speed() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
     assert [trace.name for trace in fig.data] == [
-        "Höhe (m)",
+        "Höhe ggü. Start (m)",
         "Leistung (W)",
         "Leistung (W)",
         "Herzfrequenz (bpm)",
@@ -194,7 +194,17 @@ def test_build_timeline_figure_labels_the_altitude_hover_in_german() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
     altitude_trace = fig.data[0]
-    assert altitude_trace.hovertemplate == "Höhe (m): %{y:.0f}<extra></extra>"
+    assert (
+        altitude_trace.hovertemplate == "Höhe ggü. Start (m): %{y:.0f}<extra></extra>"
+    )
+
+
+def test_build_timeline_figure_plots_altitude_relative_to_the_start() -> None:
+    """The first record's altitude is the baseline, so it plots as zero."""
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    altitude_trace = fig.data[0]
+    assert altitude_trace.y.tolist() == pytest.approx([0.0, 1.0, 2.0])
 
 
 def test_build_timeline_figure_gives_speed_one_decimal_in_the_hover() -> None:

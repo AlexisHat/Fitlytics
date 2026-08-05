@@ -45,7 +45,9 @@ def build_time_series(records: list[RecordPoint]) -> pl.DataFrame:
         A DataFrame with columns ``timestamp``, ``elapsed_s`` (seconds
         since the first record), ``distance_km``, ``heart_rate``,
         ``power``, ``power_rolling_30s``, ``cadence``, ``speed_kmh``,
-        ``altitude_m``, ``grade_pct`` — one row per input record, in order.
+        ``altitude_m``, ``altitude_relative_m`` (altitude minus the first
+        recorded altitude), ``grade_pct`` — one row per input record, in
+        order.
 
     Raises:
         deal.PreContractError: If ``records`` is empty or not
@@ -73,6 +75,9 @@ def build_time_series(records: list[RecordPoint]) -> pl.DataFrame:
         .alias("elapsed_s"),
         pl.col("distance_m").cast(pl.Float64).truediv(1000).alias("distance_km"),
         pl.col("speed_ms").cast(pl.Float64).mul(3.6).alias("speed_kmh"),
+        (pl.col("altitude_m") - pl.col("altitude_m").drop_nulls().first()).alias(
+            "altitude_relative_m"
+        ),
     )
     series = series.with_columns(
         pl.col("power")
@@ -90,6 +95,7 @@ def build_time_series(records: list[RecordPoint]) -> pl.DataFrame:
         "cadence",
         "speed_kmh",
         "altitude_m",
+        "altitude_relative_m",
         "grade_pct",
     )
 
