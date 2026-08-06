@@ -118,6 +118,58 @@ def test_record_point_rejects_out_of_range_position(field: str, value: float) ->
         )
 
 
+def test_workout_has_gps_track_with_two_or_more_fixes() -> None:
+    workout = Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        records=[
+            RecordPoint(
+                timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+                latitude=51.06,
+                longitude=6.85,
+            ),
+            RecordPoint(
+                timestamp=datetime(2026, 7, 16, 14, 11, 40, tzinfo=UTC),
+                latitude=51.07,
+                longitude=6.86,
+            ),
+        ],
+    )
+
+    assert workout.has_gps_track is True
+
+
+def test_workout_has_no_gps_track_with_only_one_fix() -> None:
+    workout = Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        records=[
+            RecordPoint(
+                timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+                latitude=51.06,
+                longitude=6.85,
+            ),
+            RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 40, tzinfo=UTC)),
+        ],
+    )
+
+    assert workout.has_gps_track is False
+
+
+def test_workout_has_no_gps_track_without_any_fix() -> None:
+    workout = Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        records=[
+            RecordPoint(
+                timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC), power=200
+            )
+        ],
+    )
+
+    assert workout.has_gps_track is False
+
+
 def test_workout_rejects_negative_total_ascent() -> None:
     with pytest.raises(PydanticValidationError):
         Workout(

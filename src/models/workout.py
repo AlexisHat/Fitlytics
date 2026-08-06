@@ -82,3 +82,29 @@ class Workout(BaseModel):
     device_intensity_factor: NonNegativeFloat | None = None
     device_training_stress_score: NonNegativeFloat | None = None
     records: list[RecordPoint] = Field(min_length=1)
+
+    @property
+    def has_gps_track(self) -> bool:
+        """Whether the workout has enough GPS fixes to draw a track on a map.
+
+        Returns:
+            True if at least two records carry both latitude and
+            longitude, the minimum needed to draw a line; False otherwise,
+            e.g. for an indoor trainer session with no GPS at all.
+
+        >>> from datetime import UTC, datetime
+        >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+        >>> indoor = Workout(
+        ...     start_time=start,
+        ...     sport="cycling",
+        ...     records=[RecordPoint(timestamp=start, power=200)],
+        ... )
+        >>> indoor.has_gps_track
+        False
+        """
+        gps_fixes = sum(
+            1
+            for record in self.records
+            if record.latitude is not None and record.longitude is not None
+        )
+        return gps_fixes >= 2
