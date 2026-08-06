@@ -97,6 +97,27 @@ def test_workout_allows_negative_avg_grade() -> None:
     assert workout.avg_grade_pct == -1.5
 
 
+def test_record_point_accepts_boundary_latitude_and_longitude() -> None:
+    point = RecordPoint(
+        timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        latitude=90.0,
+        longitude=-180.0,
+    )
+
+    assert point.latitude == 90.0
+    assert point.longitude == -180.0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("latitude", 90.1), ("latitude", -90.1), ("longitude", 180.1)]
+)
+def test_record_point_rejects_out_of_range_position(field: str, value: float) -> None:
+    with pytest.raises(PydanticValidationError):
+        RecordPoint.model_validate(
+            {"timestamp": datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC), field: value}
+        )
+
+
 def test_workout_rejects_negative_total_ascent() -> None:
     with pytest.raises(PydanticValidationError):
         Workout(

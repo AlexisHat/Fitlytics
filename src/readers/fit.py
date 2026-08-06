@@ -2,7 +2,7 @@
 
 from itertools import pairwise
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Final
 
 import deal
 import fitdecode
@@ -10,6 +10,25 @@ from pydantic import ValidationError as PydanticValidationError
 
 from errors import FileImportError
 from models import RecordPoint, Workout
+
+_SEMICIRCLES_TO_DEGREES: Final = 180 / 2**31
+"""FIT encodes GPS coordinates as semicircles, a signed 32-bit unit where
+the full int32 range spans -180 to 180 degrees."""
+
+
+def _semicircles_to_degrees(value: int) -> float:
+    """Convert a FIT semicircle coordinate to decimal degrees.
+
+    Args:
+        value: A raw ``position_lat``/``position_long`` field value.
+
+    Returns:
+        The equivalent decimal-degree coordinate.
+
+    >>> round(_semicircles_to_degrees(609223111), 4)
+    51.0645
+    """
+    return value * _SEMICIRCLES_TO_DEGREES
 
 
 def _build_record_point(fields: dict[str, Any]) -> RecordPoint:
@@ -48,6 +67,9 @@ def _build_record_point(fields: dict[str, Any]) -> RecordPoint:
     if altitude_m is None:
         altitude_m = fields.get("altitude")
 
+    position_lat = fields.get("position_lat")
+    position_long = fields.get("position_long")
+
     return RecordPoint(
         timestamp=fields["timestamp"],
         heart_rate=fields.get("heart_rate"),
@@ -57,6 +79,12 @@ def _build_record_point(fields: dict[str, Any]) -> RecordPoint:
         speed_ms=speed_ms,
         altitude_m=altitude_m,
         grade_pct=fields.get("grade"),
+        latitude=(
+            None if position_lat is None else _semicircles_to_degrees(position_lat)
+        ),
+        longitude=(
+            None if position_long is None else _semicircles_to_degrees(position_long)
+        ),
     )
 
 

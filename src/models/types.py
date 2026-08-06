@@ -48,3 +48,11 @@ PercentInt = Annotated[int, Field(ge=0, le=100)]
 
 PercentFloat = Annotated[float, Field(ge=0, le=100)]
 """A fractional percentage; values outside 0-100 are impossible by definition."""
+
+Latitude = Annotated[float, Field(ge=-90, le=90)]
+"""Decimal-degree latitude; values outside -90 to 90 are impossible by
+definition, regardless of how implausible the position is otherwise."""
+
+Longitude = Annotated[float, Field(ge=-180, le=180)]
+"""Decimal-degree longitude; values outside -180 to 180 are impossible by
+definition, regardless of how implausible the position is otherwise."""

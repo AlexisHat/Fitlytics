@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from errors import FileImportError
-from readers.fit import _build_record_point, import_fit_file
+from readers.fit import _build_record_point, _semicircles_to_degrees, import_fit_file
 
 VALID_FIXTURE = Path("data/beispiel/training_gueltig.fit")
 EMPTY_FIXTURE = Path("data/beispiel/training_leer.fit")
@@ -110,6 +110,35 @@ def test_build_record_point_falls_back_to_plain_altitude() -> None:
     point = _build_record_point(fields)
 
     assert point.altitude_m == 41.0
+
+
+def test_build_record_point_converts_position_from_semicircles() -> None:
+    timestamp = datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC)
+    fields = {
+        "timestamp": timestamp,
+        "position_lat": 609223111,
+        "position_long": 81755779,
+    }
+
+    point = _build_record_point(fields)
+
+    assert point.latitude == pytest.approx(51.0645, abs=1e-4)
+    assert point.longitude == pytest.approx(6.8527, abs=1e-4)
+
+
+def test_build_record_point_leaves_position_none_without_gps_fix() -> None:
+    timestamp = datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC)
+
+    point = _build_record_point({"timestamp": timestamp})
+
+    assert point.latitude is None
+    assert point.longitude is None
+
+
+def test_semicircles_to_degrees_converts_the_full_range() -> None:
+    assert _semicircles_to_degrees(2**31) == pytest.approx(180.0)
+    assert _semicircles_to_degrees(-(2**31)) == pytest.approx(-180.0)
+    assert _semicircles_to_degrees(0) == 0.0
 
 
 def test_build_record_point_maps_grade() -> None:

@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field, NonNegativeFloat, NonNegativeInt, PositiveInt
 
-from models.types import UtcDatetime
+from models.types import Latitude, Longitude, UtcDatetime
 
 
 class RecordPoint(BaseModel):
@@ -23,6 +23,10 @@ class RecordPoint(BaseModel):
         altitude_m: Altitude in metres, if recorded; may be negative.
         grade_pct: Instantaneous gradient in percent, if recorded; may be
             negative on a descent.
+        latitude: Decimal-degree latitude (WGS84), if a GPS fix was
+            available.
+        longitude: Decimal-degree longitude (WGS84), if a GPS fix was
+            available.
     """
 
     timestamp: UtcDatetime
@@ -33,6 +37,8 @@ class RecordPoint(BaseModel):
     speed_ms: NonNegativeFloat | None = None
     altitude_m: float | None = None
     grade_pct: float | None = None
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
 
 
 class Workout(BaseModel):
