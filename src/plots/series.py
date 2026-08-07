@@ -46,8 +46,8 @@ def build_time_series(records: list[RecordPoint]) -> pl.DataFrame:
         since the first record), ``distance_km``, ``heart_rate``,
         ``power``, ``power_rolling_30s``, ``cadence``, ``speed_kmh``,
         ``altitude_m``, ``altitude_relative_m`` (altitude minus the first
-        recorded altitude), ``grade_pct`` — one row per input record, in
-        order.
+        recorded altitude), ``grade_pct``, ``latitude``, ``longitude`` —
+        one row per input record, in order.
 
     Raises:
         deal.PreContractError: If ``records`` is empty or not
@@ -97,6 +97,8 @@ def build_time_series(records: list[RecordPoint]) -> pl.DataFrame:
         "altitude_m",
         "altitude_relative_m",
         "grade_pct",
+        "latitude",
+        "longitude",
     )
 
 

@@ -25,3 +25,6 @@ wheels/
 # Projektdaten
 data/private/
 *.db
+
+# Wegwerf-Vorschau-Skripte
+scripts/*.html

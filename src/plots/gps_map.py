@@ -1,9 +1,12 @@
-"""Registry of colourable metrics for the GPS track map."""
+"""Registry and figure builder for the GPS track map."""
 
 from enum import StrEnum
 from typing import Final, NamedTuple
 
+import plotly.graph_objects as go
 import polars as pl
+
+from errors import AnalysisError
 
 
 class MetricScale(StrEnum):
@@ -100,3 +103,80 @@ def available_metrics(series: pl.DataFrame) -> tuple[MetricKey, ...]:
         for key, spec in METRICS.items()
         if series[spec.column].drop_nulls().len() > 0
     )
+
+
+_MAP_STYLE: Final = "open-street-map"
+"""Basemap style; free and token-free with go.Scattermap."""
+
+_TRACK_COLOR: Final = "#37474f"
+"""Neutral slate grey — stays legible against the OSM basemap and, once a
+metric colours the track (a later commit), still works as the thin
+connecting line drawn underneath the coloured markers."""
+
+
+def build_gps_map_figure(series: pl.DataFrame) -> go.Figure:
+    """Build a single-colour map of a workout's GPS track.
+
+    A GPS gap (e.g. a tunnel) is left as a break in the line rather than
+    bridged with a straight line to the next fix — ``latitude``/``longitude``
+    are passed through with their nulls intact, and ``connectgaps=False``
+    keeps plotly from drawing across them.
+
+    Args:
+        series: A time series built by :func:`plots.series.build_time_series`.
+
+    Returns:
+        A plotly figure with the track drawn on an OpenStreetMap basemap,
+        zoomed and centred to the track's bounding box.
+
+    Raises:
+        AnalysisError: If fewer than two records carry both a latitude and
+            a longitude.
+
+    >>> from datetime import UTC, datetime, timedelta
+    >>> from models import RecordPoint
+    >>> from plots.series import build_time_series
+    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+    >>> records = [
+    ...     RecordPoint(timestamp=start, latitude=51.05, longitude=6.85),
+    ...     RecordPoint(
+    ...         timestamp=start + timedelta(seconds=1), latitude=51.06, longitude=6.86
+    ...     ),
+    ... ]
+    >>> fig = build_gps_map_figure(build_time_series(records))
+    >>> bounds = fig.layout.map.bounds
+    >>> (bounds.west, bounds.east, bounds.south, bounds.north)
+    (6.85, 6.86, 51.05, 51.06)
+    """
+    fixes = series.filter(
+        pl.col("latitude").is_not_null() & pl.col("longitude").is_not_null()
+    )
+    if len(fixes) < 2:
+        raise AnalysisError("not enough GPS fixes to draw a track")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattermap(
+            lat=series["latitude"],
+            lon=series["longitude"],
+            mode="lines",
+            line={"color": _TRACK_COLOR, "width": 2},
+            connectgaps=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.update_layout(
+        map={
+            "style": _MAP_STYLE,
+            "bounds": {
+                "west": fixes["longitude"].min(),
+                "east": fixes["longitude"].max(),
+                "south": fixes["latitude"].min(),
+                "north": fixes["latitude"].max(),
+            },
+        },
+        showlegend=False,
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        height=600,
+    )
+    return fig
