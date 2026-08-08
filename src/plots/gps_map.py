@@ -61,21 +61,49 @@ class MetricSpec(NamedTuple):
     label: str
     unit: str
     conversion_factor: float
-    colorscale: str
+    colorscale: str | list[list[float | str]]
     scale: MetricScale = MetricScale.SEQUENTIAL
 
 
 METRICS: Final[dict[MetricKey, MetricSpec]] = {
-    MetricKey.POWER: MetricSpec("power", "Leistung", "W", 1.0, "Plasma"),
-    MetricKey.SPEED: MetricSpec("speed_kmh", "Geschwindigkeit", "km/h", 1.0, "Viridis"),
+    MetricKey.POWER: MetricSpec(
+        "power_rolling_30s",
+        "Leistung",
+        "W",
+        1.0,
+        [[0.0, "#1269db"], [0.5, "#ebae2b"], [1.0, "#8c0021"]],
+    ),
+    MetricKey.SPEED: MetricSpec(
+        "speed_kmh",
+        "Geschwindigkeit",
+        "km/h",
+        1.0,
+        [[0.0, "#deebf7"], [0.5, "#6baed6"], [1.0, "#08519c"]],
+    ),
     MetricKey.HEART_RATE: MetricSpec(
-        "heart_rate", "Herzfrequenz", "bpm", 1.0, "YlOrRd"
+        "heart_rate",
+        "Herzfrequenz",
+        "bpm",
+        1.0,
+        [[0.0, "#ffffb2"], [0.5, "#fd8d3c"], [1.0, "#b10026"]],
     ),
     MetricKey.GRADE: MetricSpec(
-        "grade_pct", "Steigung", "%", 1.0, "RdBu", MetricScale.DIVERGING
+        "grade_pct",
+        "Steigung",
+        "%",
+        1.0,
+        [[0.0, "#2166ac"], [0.5, "#f7f7f7"], [1.0, "#b2182b"]],
+        MetricScale.DIVERGING,
     ),
-    MetricKey.CADENCE: MetricSpec("cadence", "Trittfrequenz", "rpm", 1.0, "Cividis"),
+    MetricKey.CADENCE: MetricSpec(
+        "cadence",
+        "Trittfrequenz",
+        "rpm",
+        1.0,
+        [[0.0, "#efedf5"], [0.5, "#9e9ac8"], [1.0, "#54278f"]],
+    ),
 }
+
 """Every metric the map plot can colour a track by. Adding a new colourable
 metric means adding an entry here — the plot builder (added in a later
 commit) reads this table generically and needs no change of its own."""
