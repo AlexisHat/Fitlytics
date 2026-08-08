@@ -22,6 +22,7 @@ def _point(
     grade_pct: float | None = None,
     latitude: float | None = None,
     longitude: float | None = None,
+    distance_m: float | None = None,
 ) -> RecordPoint:
     return RecordPoint(
         timestamp=START + timedelta(seconds=offset_s),
@@ -32,6 +33,7 @@ def _point(
         grade_pct=grade_pct,
         latitude=latitude,
         longitude=longitude,
+        distance_m=distance_m,
     )
 
 
@@ -187,3 +189,84 @@ def test_build_gps_map_figure_does_not_set_cmid_for_a_sequential_metric() -> Non
     fig = build_gps_map_figure(build_time_series(_TRACK_RECORDS), MetricKey.HEART_RATE)
 
     assert fig.data[1].marker.cmid is None
+
+
+def test_build_gps_map_figure_hover_shows_metric_position_time_and_distance() -> None:
+    records = [
+        _point(0, latitude=51.05, longitude=6.85, heart_rate=140, distance_m=0.0),
+        _point(65, latitude=51.06, longitude=6.86, heart_rate=150, distance_m=1500.0),
+    ]
+
+    fig = build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
+
+    hover_text = fig.data[1].text[1]
+    assert "Herzfrequenz: 150.0 bpm" in hover_text
+    assert "51.0600° N, 6.8600° O" in hover_text
+    assert "Zeit: 00:01:05" in hover_text
+    assert "Distanz: 1.50 km" in hover_text
+
+
+def test_build_gps_map_figure_hover_is_honest_about_an_interpolated_reading() -> None:
+    """The colour at an interpolated point must not be claimed as a real
+    measurement in its hover text."""
+    records = [
+        _point(0, latitude=51.05, longitude=6.85, heart_rate=140),
+        _point(1, latitude=51.06, longitude=6.86, heart_rate=None),
+        _point(2, latitude=51.07, longitude=6.87, heart_rate=160),
+    ]
+
+    fig = build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
+
+    interpolated_hover = next(
+        text
+        for text, color in zip(fig.data[1].text, fig.data[1].marker.color, strict=True)
+        if color == 150.0
+    )
+    assert "keine Daten" in interpolated_hover
+
+
+def test_build_gps_map_figure_disables_hover_on_the_connecting_line() -> None:
+    fig = build_gps_map_figure(build_time_series(_TRACK_RECORDS), MetricKey.HEART_RATE)
+
+    assert fig.data[0].hoverinfo == "skip"
+
+
+def test_build_gps_map_figure_accepts_exactly_two_gps_fixes() -> None:
+    """Two fixes is the minimum for a track, not yet a rejection case."""
+    records = [
+        _point(0, latitude=51.05, longitude=6.85, heart_rate=140),
+        _point(1, latitude=51.06, longitude=6.86, heart_rate=150),
+    ]
+
+    fig = build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
+
+    assert len(fig.data[1].marker.color) == 2
+
+
+def test_build_gps_map_figure_handles_a_stationary_track() -> None:
+    """A rider stopped at a single spot (or an indoor trainer with a stray
+    GPS fix) collapses the bounding box to a single point; this must not
+    raise, even though west == east and south == north."""
+    records = [
+        _point(0, latitude=51.05, longitude=6.85, heart_rate=140),
+        _point(1, latitude=51.05, longitude=6.85, heart_rate=150),
+    ]
+
+    fig = build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
+
+    bounds = fig.layout.map.bounds
+    assert (bounds.west, bounds.east) == pytest.approx((6.85, 6.85))
+    assert (bounds.south, bounds.north) == pytest.approx((51.05, 51.05))
+
+
+def test_build_gps_map_figure_rejects_a_metric_recorded_only_without_gps() -> None:
+    """A metric that only has readings on rows without a GPS fix is, for
+    this plot, exactly as unusable as one with no readings at all."""
+    records = [
+        _point(0, latitude=51.05, longitude=6.85),
+        _point(1, latitude=51.06, longitude=6.86),
+        _point(2, heart_rate=140),
+    ]
+
+    with pytest.raises(AnalysisError):
+        build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)

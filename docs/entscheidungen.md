@@ -255,3 +255,36 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Begründung:** Bei `make_subplots` bleiben Hover, Spikelines und Tooltip auf das Panel unter dem Mauszeiger beschränkt — `shared_xaxes` koppelt nur Zoom/Pan, keine Hover-Events. Erst eine echte gemeinsame x-Achse lässt die Spike-Linie über alle Panels laufen, im Browser gegen echte Daten verifiziert.
 
 ---
+
+
+### GPS-Position: `Latitude`/`Longitude` als definitorische Pydantic-Typen
+
+**Entscheidung:** `RecordPoint` bekommt `latitude`/`longitude` (neue `Annotated`-Typen in `models/types.py`, `Field(ge=-90, le=90)` bzw. `ge=-180, le=180`). `readers/fit.py` konvertiert die rohen `position_lat`/`position_long`-Semicircles mit Faktor `180 / 2**31`.
+
+**Begründung:** Die Gradgrenzen folgen aus der Größe selbst (wie bei `PercentInt`/`PercentFloat`), nicht aus physiologischer Plausibilität — gehören damit ins Modell, nicht nach `validation/ranges.py`. Ein aus einem defekten Semicircle-Wert entstehender Grad außerhalb der Grenzen lässt wie jedes andere Feld in `_build_record_point` die Konstruktion fehlschlagen und den Import als `FileImportError` melden, statt eine neue Sonderbehandlung nur für GPS einzuführen.
+
+---
+
+### `Workout.has_gps_track`: mindestens zwei Fixe statt „irgendein Fix"
+
+**Entscheidung:** Neue Property direkt auf `Workout` (analog zu `PowerZoneDistribution.total_duration`). Liefert `True` erst ab mindestens zwei Records mit gesetzten `latitude`/`longitude`.
+
+**Begründung:** Ein einzelner GPS-Punkt lässt sich nicht als Strecke zeichnen. Die Schwelle „mindestens zwei" folgt demselben Muster wie andernorts (`trimp`, `power_zone_distribution`: beide verlangen mindestens zwei Samples).
+
+---
+
+### Open Street Map als Kartentyp
+
+**Entscheidung:**  Open Street Map als Kartentyp
+
+**Begründung:** Schon vorerfahrungen mir Open Street Map
+
+---
+
+### Doppelt befahrene Streckenabschnitte: höherer Messwert liegt oben
+
+**Entscheidung:** Bei diesem Intervalltraining (Loop-/Aus-und-zurück-Strecke) liegen 89 % aller GPS-Punkte auf mehrfach befahrenen Stellen (bis zu 20-mal), die sich auf der Karte überlappen. Linie (Streckenverlauf, chronologisch) und Marker (Einfärbung) sind deshalb zwei getrennte Traces. Die Marker werden aufsteigend nach Metrikwert gezeichnet, sodass an jeder überlappenden Stelle immer der höchste dort gemessene Wert oben liegt. Fehlt der Messwert nur an einer einzelnen Stelle zwischen zwei bekannten Werten, wird er für die Einfärbung interpoliert; fehlt er ohne Nachbarwert (Anfang/Ende), wird der Punkt nicht eingefärbt gezeichnet.
+
+**Begründung:** Bei einer festen Zeichenreihenfolge (z. B. chronologisch) würde eine frühe, lockere Runde eine spätere, harte Intervall-Wiederholung an derselben Stelle einfach zudecken. Der höchste Wert oben ist für die Trainingsanalyse aussagekräftiger, auch wenn das bei der Steigung (divergierende Skala) dazu führt, dass Anstiege Gefälle an überlappenden Stellen überdecken statt umgekehrt — eine bewusst in Kauf genommene Nebenwirkung derselben einheitlichen Regel für alle Metriken.
+
+---

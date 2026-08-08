@@ -151,6 +151,99 @@ _COLOR_RANGE_HIGH_QUANTILE: Final = 0.98
 of the ride."""
 
 
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as a zero-padded ``HH:MM:SS`` clock string.
+
+    Args:
+        seconds: Elapsed time in seconds; must not be negative.
+
+    Returns:
+        The formatted duration.
+
+    >>> _format_elapsed(3725)
+    '01:02:05'
+    """
+    total = round(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _format_position(latitude: float, longitude: float) -> str:
+    """Format a coordinate pair with German cardinal-direction suffixes.
+
+    Args:
+        latitude: Decimal-degree latitude.
+        longitude: Decimal-degree longitude.
+
+    Returns:
+        The formatted coordinate.
+
+    >>> _format_position(51.0645, 6.8527)
+    '51.0645° N, 6.8527° O'
+    >>> _format_position(-33.8688, -70.6483)
+    '33.8688° S, 70.6483° W'
+    """
+    lat_dir = "N" if latitude >= 0 else "S"
+    lon_dir = "O" if longitude >= 0 else "W"
+    return f"{abs(latitude):.4f}° {lat_dir}, {abs(longitude):.4f}° {lon_dir}"
+
+
+def _hover_texts(colorable: pl.DataFrame, spec: MetricSpec) -> list[str]:
+    """Build one hover string per row of the coloured marker trace.
+
+    A row whose real reading is missing (its colour comes from
+    interpolating its neighbours, see :func:`build_gps_map_figure`) reports
+    "keine Daten" for the metric instead of that interpolated number — the
+    colour is a display convenience, not a measurement to claim in hover.
+
+    Args:
+        colorable: Rows to build hover text for, with ``latitude``,
+            ``longitude``, ``elapsed_s``, ``distance_km`` and the metric's
+            true, non-interpolated value in ``_raw_value``.
+        spec: The metric being displayed.
+
+    Returns:
+        One hover string per row, in the same order.
+
+    >>> series = pl.DataFrame(
+    ...     {
+    ...         "latitude": [51.0645],
+    ...         "longitude": [6.8527],
+    ...         "elapsed_s": [65.0],
+    ...         "distance_km": [1.5],
+    ...         "_raw_value": [None],
+    ...     }
+    ... )
+    >>> spec = MetricSpec("heart_rate", "Herzfrequenz", "bpm", 1.0, "YlOrRd")
+    >>> lines = _hover_texts(series, spec)[0].split("<br>")
+    >>> lines[0]
+    'Herzfrequenz: keine Daten'
+    >>> lines[2], lines[3]
+    ('Zeit: 00:01:05', 'Distanz: 1.50 km')
+    """
+    texts = []
+    for lat, lon, elapsed_s, distance_km, raw_value in zip(
+        colorable["latitude"],
+        colorable["longitude"],
+        colorable["elapsed_s"],
+        colorable["distance_km"],
+        colorable["_raw_value"],
+        strict=True,
+    ):
+        metric_text = (
+            "keine Daten" if raw_value is None else f"{raw_value:.1f} {spec.unit}"
+        )
+        distance_text = "k. A." if distance_km is None else f"{distance_km:.2f} km"
+        texts.append(
+            f"{spec.label}: {metric_text}<br>"
+            f"Position: {_format_position(lat, lon)}<br>"
+            f"Zeit: {_format_elapsed(elapsed_s)}<br>"
+            f"Distanz: {distance_text}"
+        )
+    return texts
+
+
 @deal.pre(lambda values: values.drop_nulls().len() > 0)
 def _percentile_color_range(values: pl.Series) -> tuple[float, float]:
     """Compute a percentile-clipped colour-scale range for a metric.
@@ -192,7 +285,10 @@ def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
     purposes only, so the coloured line doesn't visibly break for a single
     missing sample; a fix with no metric value on either side (the very
     start or end of a recording) is left out of the coloured markers
-    entirely.
+    entirely. Hovering a marker always reports the true, non-interpolated
+    reading — a point whose colour came from interpolation shows "keine
+    Daten" for the metric rather than the invented number, alongside its
+    position, elapsed time and distance.
 
     Args:
         series: A time series built by :func:`plots.series.build_time_series`.
@@ -201,7 +297,8 @@ def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
     Returns:
         A plotly figure with the track drawn on an OpenStreetMap basemap,
         zoomed and centred to the track's bounding box, with a colorbar
-        labelled with the metric's name and unit.
+        labelled with the metric's name and unit, and a hover label per
+        marker showing the metric, position, elapsed time and distance.
 
     Raises:
         AnalysisError: If fewer than two records carry both a latitude and
@@ -242,10 +339,11 @@ def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
 
     colorable = (
         series.with_columns(
-            (pl.col(spec.column).cast(pl.Float64) * spec.conversion_factor)
-            .interpolate()
-            .alias("_color_value")
+            (pl.col(spec.column).cast(pl.Float64) * spec.conversion_factor).alias(
+                "_raw_value"
+            )
         )
+        .with_columns(pl.col("_raw_value").interpolate().alias("_color_value"))
         .filter(
             pl.col("latitude").is_not_null()
             & pl.col("longitude").is_not_null()
@@ -279,7 +377,8 @@ def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
                 "size": _MARKER_SIZE,
                 "colorbar": {"title": {"text": f"{spec.label} ({spec.unit})"}},
             },
-            hoverinfo="skip",
+            text=_hover_texts(colorable, spec),
+            hovertemplate="%{text}<extra></extra>",
         )
     )
     fig.update_layout(
