@@ -19,7 +19,8 @@ from itertools import pairwise
 import deal
 
 from analysis.constants import PAUSE_GAP_THRESHOLD
-from models import RecordPoint
+from analysis.workout import compute_workout_metrics
+from models import RecordPoint, Workout
 
 _NP_WINDOW = 30
 """Rolling-average window in samples for Normalized Power, per Coggan's
@@ -211,3 +212,54 @@ def trimp(
         )
 
     return total
+
+
+@deal.pre(lambda _: _.ftp_watts is None or _.ftp_watts > 0)
+@deal.pre(lambda _: _.hr_rest is None or _.hr_max is None or _.hr_rest < _.hr_max)
+def training_load(
+    workout: Workout,
+    ftp_watts: int | None,
+    hr_rest: int | None,
+    hr_max: int | None,
+) -> float | None:
+    """Compute a single workout's training load for the calendar view.
+
+    Prefers TSS (Coggan), since it is scaled to the athlete's own
+    threshold power; falls back to TRIMP when the workout has no usable
+    power data (no power meter, or too few samples for Normalized Power)
+    or no FTP is known.
+
+    Args:
+        workout: The workout to score.
+        ftp_watts: The athlete's Functional Threshold Power, or None if
+            unknown; must be positive if given.
+        hr_rest: The athlete's resting heart rate, or None if unknown; must
+            be lower than hr_max if both are given.
+        hr_max: The athlete's maximum heart rate, or None if unknown.
+
+    Returns:
+        The training load (TSS or TRIMP, whichever was computable), or
+        None if neither could be computed.
+
+    >>> from datetime import UTC, datetime, timedelta
+    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+    >>> workout = Workout(
+    ...     start_time=start,
+    ...     sport="cycling",
+    ...     records=[
+    ...         RecordPoint(timestamp=start + timedelta(seconds=i), power=200)
+    ...         for i in range(30)
+    ...     ],
+    ... )
+    >>> round(training_load(workout, ftp_watts=210, hr_rest=50, hr_max=190), 1)
+    0.7
+    """
+    np = normalized_power(workout.records)
+    if np is not None and ftp_watts is not None:
+        iff = intensity_factor(np, ftp_watts)
+        moving_time = compute_workout_metrics(workout).moving_time
+        tss = training_stress_score(np, iff, moving_time, ftp_watts)
+        if tss is not None:
+            return tss
+
+    return trimp(workout.records, hr_rest, hr_max)

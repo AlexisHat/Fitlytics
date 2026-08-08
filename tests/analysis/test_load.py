@@ -10,11 +10,12 @@ from hypothesis import strategies as st
 from analysis.load import (
     intensity_factor,
     normalized_power,
+    training_load,
     training_stress_score,
     trimp,
     variability_index,
 )
-from models import RecordPoint
+from models import RecordPoint, Workout
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
 
@@ -31,6 +32,10 @@ def _records_with_heart_rate(*heart_rates: int, gap_s: int = 1) -> list[RecordPo
         RecordPoint(timestamp=START + timedelta(seconds=i * gap_s), heart_rate=hr)
         for i, hr in enumerate(heart_rates)
     ]
+
+
+def _workout(records: list[RecordPoint]) -> Workout:
+    return Workout(start_time=START, sport="cycling", records=records)
 
 
 class TestNormalizedPower:
@@ -164,6 +169,59 @@ class TestTrimp:
 
         with pytest.raises(deal.PreContractError):
             trimp(records, hr_rest=190, hr_max=190)
+
+
+class TestTrainingLoad:
+    def test_prefers_tss_when_power_and_ftp_are_available(self) -> None:
+        workout = _workout(_records_with_power(*([200] * 40)))
+
+        result = training_load(workout, ftp_watts=210, hr_rest=50, hr_max=190)
+
+        assert result == training_stress_score(
+            normalized_power(workout.records),
+            intensity_factor(normalized_power(workout.records), 210),
+            workout.records[-1].timestamp - workout.records[0].timestamp,
+            210,
+        )
+
+    def test_falls_back_to_trimp_without_a_power_meter(self) -> None:
+        workout = _workout(_records_with_heart_rate(*([140] * 60)))
+
+        result = training_load(workout, ftp_watts=210, hr_rest=50, hr_max=190)
+
+        assert result == trimp(workout.records, hr_rest=50, hr_max=190)
+
+    def test_falls_back_to_trimp_without_a_known_ftp(self) -> None:
+        records = [
+            RecordPoint(
+                timestamp=START + timedelta(seconds=i), power=200, heart_rate=140
+            )
+            for i in range(40)
+        ]
+        workout = _workout(records)
+
+        result = training_load(workout, ftp_watts=None, hr_rest=50, hr_max=190)
+
+        assert result == trimp(workout.records, hr_rest=50, hr_max=190)
+
+    def test_none_when_neither_tss_nor_trimp_is_computable(self) -> None:
+        workout = _workout(_records_with_power(*([200] * 40)))
+
+        result = training_load(workout, ftp_watts=None, hr_rest=None, hr_max=None)
+
+        assert result is None
+
+    def test_rejects_hr_rest_not_below_hr_max(self) -> None:
+        workout = _workout(_records_with_heart_rate(140, 150))
+
+        with pytest.raises(deal.PreContractError):
+            training_load(workout, ftp_watts=None, hr_rest=190, hr_max=190)
+
+    def test_rejects_a_non_positive_ftp(self) -> None:
+        workout = _workout(_records_with_power(200))
+
+        with pytest.raises(deal.PreContractError):
+            training_load(workout, ftp_watts=0, hr_rest=None, hr_max=None)
 
 
 @given(

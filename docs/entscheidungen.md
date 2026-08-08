@@ -288,3 +288,11 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Begründung:** Bei einer festen Zeichenreihenfolge (z. B. chronologisch) würde eine frühe, lockere Runde eine spätere, harte Intervall-Wiederholung an derselben Stelle einfach zudecken. Der höchste Wert oben ist für die Trainingsanalyse aussagekräftiger, auch wenn das bei der Steigung (divergierende Skala) dazu führt, dass Anstiege Gefälle an überlappenden Stellen überdecken statt umgekehrt — eine bewusst in Kauf genommene Nebenwirkung derselben einheitlichen Regel für alle Metriken.
 
 ---
+
+### Trainingsbelastung für die Kalenderansicht: TSS, sonst TRIMP als Fallback
+
+**Entscheidung:** `training_load()` in `analysis/load.py` nutzt TSS, wenn die Einheit Leistungsdaten und ein bekanntes FTP hat, sonst TRIMP. `build_calendar()` in `analysis/calendar.py` ordnet ein Workout dem UTC-Datum von `start_time` zu (FIT-Dateien liefern keine lokale Zeitzone) und summiert die Belastung mehrerer Workouts am selben Tag. Ein negativer TRIMP-Wert (HF unter `hr_rest`) wird auf 0 gekappt, ebenso ein Tag, an dem keine der beiden Methoden berechenbar war (kein Leistungsmesser, kein bekanntes HF-Profil) — beides ist im Kalender nicht von einem echten Ruhetag unterscheidbar.
+
+**Begründung:** TSS ist die exaktere Kennzahl bei vorhandenem Powermeter, TRIMP deckt jedes Training über die Herzfrequenz ab. Ruhetage werden im vollständigen Datumsbereich als `training_load=0.0` geführt statt ausgelassen, damit die Kalenderansicht eine lückenlose Wochen-/Tage-Struktur hat.
+
+---
