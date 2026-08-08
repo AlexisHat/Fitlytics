@@ -3,6 +3,7 @@
 from enum import StrEnum
 from typing import Final, NamedTuple
 
+import deal
 import plotly.graph_objects as go
 import polars as pl
 
@@ -109,50 +110,121 @@ _MAP_STYLE: Final = "open-street-map"
 """Basemap style; free and token-free with go.Scattermap."""
 
 _TRACK_COLOR: Final = "#37474f"
-"""Neutral slate grey — stays legible against the OSM basemap and, once a
-metric colours the track (a later commit), still works as the thin
-connecting line drawn underneath the coloured markers."""
+"""Neutral slate grey for the connecting line — stays legible against the
+OSM basemap and, drawn thin beneath the coloured markers, doesn't compete
+with any metric's colourscale."""
+
+_MARKER_SIZE: Final = 6
+
+_COLOR_RANGE_LOW_QUANTILE: Final = 0.02
+_COLOR_RANGE_HIGH_QUANTILE: Final = 0.98
+"""2nd/98th percentile as the colour range, so a single outlier reading
+(sensor spike, brief sprint) doesn't wash out the colour scale for the rest
+of the ride."""
 
 
-def build_gps_map_figure(series: pl.DataFrame) -> go.Figure:
-    """Build a single-colour map of a workout's GPS track.
+@deal.pre(lambda values: values.drop_nulls().len() > 0)
+def _percentile_color_range(values: pl.Series) -> tuple[float, float]:
+    """Compute a percentile-clipped colour-scale range for a metric.
 
-    A GPS gap (e.g. a tunnel) is left as a break in the line rather than
-    bridged with a straight line to the next fix — ``latitude``/``longitude``
-    are passed through with their nulls intact, and ``connectgaps=False``
-    keeps plotly from drawing across them.
+    Args:
+        values: The metric's recorded (non-interpolated) values for the
+            ride; must contain at least one non-null value.
+
+    Returns:
+        The ``(low, high)`` bounds, at the 2nd and 98th percentile.
+
+    >>> import polars as pl
+    >>> _percentile_color_range(pl.Series(range(1, 101)).cast(pl.Float64))
+    (3.0, 98.0)
+    """
+    low = values.quantile(_COLOR_RANGE_LOW_QUANTILE)
+    high = values.quantile(_COLOR_RANGE_HIGH_QUANTILE)
+    return (low if low is not None else 0.0), (high if high is not None else 0.0)
+
+
+def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
+    """Build a map of a workout's GPS track, coloured by the chosen metric.
+
+    A GPS gap (e.g. a tunnel) is left as a break in the connecting line
+    rather than bridged with a straight line to the next fix —
+    ``latitude``/``longitude`` are passed through with their nulls intact,
+    and ``connectgaps=False`` keeps plotly from drawing across them.
+
+    A ride that revisits the same stretch of road (an out-and-back, or
+    repeated loops for interval reps) draws several markers on top of each
+    other at that spot. Markers are drawn in ascending order of their
+    colour value, so whichever pass had the higher reading ends up on top —
+    more useful for training analysis than an arbitrary draw order, since
+    it surfaces the hardest effort at a spot rather than hiding it under an
+    earlier, easier pass.
+
+    A metric value missing at one GPS fix but present on both sides of it
+    (e.g. a brief heart-rate dropout) is linearly interpolated for colour
+    purposes only, so the coloured line doesn't visibly break for a single
+    missing sample; a fix with no metric value on either side (the very
+    start or end of a recording) is left out of the coloured markers
+    entirely.
 
     Args:
         series: A time series built by :func:`plots.series.build_time_series`.
+        metric: Which metric to colour the track by.
 
     Returns:
         A plotly figure with the track drawn on an OpenStreetMap basemap,
-        zoomed and centred to the track's bounding box.
+        zoomed and centred to the track's bounding box, with a colorbar
+        labelled with the metric's name and unit.
 
     Raises:
         AnalysisError: If fewer than two records carry both a latitude and
-            a longitude.
+            a longitude, or if ``metric`` has no data for this ride.
 
     >>> from datetime import UTC, datetime, timedelta
     >>> from models import RecordPoint
     >>> from plots.series import build_time_series
     >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
     >>> records = [
-    ...     RecordPoint(timestamp=start, latitude=51.05, longitude=6.85),
     ...     RecordPoint(
-    ...         timestamp=start + timedelta(seconds=1), latitude=51.06, longitude=6.86
+    ...         timestamp=start, latitude=51.05, longitude=6.85, heart_rate=140
+    ...     ),
+    ...     RecordPoint(
+    ...         timestamp=start + timedelta(seconds=1),
+    ...         latitude=51.06,
+    ...         longitude=6.86,
+    ...         heart_rate=150,
     ...     ),
     ... ]
-    >>> fig = build_gps_map_figure(build_time_series(records))
-    >>> bounds = fig.layout.map.bounds
-    >>> (bounds.west, bounds.east, bounds.south, bounds.north)
-    (6.85, 6.86, 51.05, 51.06)
+    >>> fig = build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
+    >>> fig.data[1].marker.color.tolist()
+    [140.0, 150.0]
     """
     fixes = series.filter(
         pl.col("latitude").is_not_null() & pl.col("longitude").is_not_null()
     )
     if len(fixes) < 2:
         raise AnalysisError("not enough GPS fixes to draw a track")
+
+    spec = METRICS[metric]
+    recorded_values = (
+        fixes[spec.column].cast(pl.Float64).drop_nulls() * spec.conversion_factor
+    )
+    if recorded_values.len() == 0:
+        raise AnalysisError(f"no data recorded for metric {metric.value!r}")
+    low, high = _percentile_color_range(recorded_values)
+
+    colorable = (
+        series.with_columns(
+            (pl.col(spec.column).cast(pl.Float64) * spec.conversion_factor)
+            .interpolate()
+            .alias("_color_value")
+        )
+        .filter(
+            pl.col("latitude").is_not_null()
+            & pl.col("longitude").is_not_null()
+            & pl.col("_color_value").is_not_null()
+        )
+        .sort("_color_value")
+    )
 
     fig = go.Figure()
     fig.add_trace(
@@ -162,6 +234,23 @@ def build_gps_map_figure(series: pl.DataFrame) -> go.Figure:
             mode="lines",
             line={"color": _TRACK_COLOR, "width": 2},
             connectgaps=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scattermap(
+            lat=colorable["latitude"],
+            lon=colorable["longitude"],
+            mode="markers",
+            marker={
+                "color": colorable["_color_value"],
+                "colorscale": spec.colorscale,
+                "cmin": low,
+                "cmax": high,
+                "cmid": 0.0 if spec.scale is MetricScale.DIVERGING else None,
+                "size": _MARKER_SIZE,
+                "colorbar": {"title": {"text": f"{spec.label} ({spec.unit})"}},
+            },
             hoverinfo="skip",
         )
     )
