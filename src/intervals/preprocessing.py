@@ -105,17 +105,17 @@ def _run_lengths(flags: list[bool]) -> list[int]:
     return [len(list(group)) for value, group in groupby(flags) if value]
 
 
-def _is_1hz_spaced(series: pl.DataFrame) -> bool:
+def is_1hz_spaced(series: pl.DataFrame) -> bool:
     """Whether every row of ``series`` is exactly one second after the last.
 
     >>> import polars as pl
     >>> from datetime import UTC, datetime, timedelta
     >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
     >>> stamps = pl.Series([start, start + timedelta(seconds=1)])
-    >>> _is_1hz_spaced(pl.DataFrame({"timestamp": stamps}))
+    >>> is_1hz_spaced(pl.DataFrame({"timestamp": stamps}))
     True
     >>> stamps = pl.Series([start, start + timedelta(seconds=2)])
-    >>> _is_1hz_spaced(pl.DataFrame({"timestamp": stamps}))
+    >>> is_1hz_spaced(pl.DataFrame({"timestamp": stamps}))
     False
     """
     gaps = series["timestamp"].diff().drop_nulls()
@@ -123,7 +123,7 @@ def _is_1hz_spaced(series: pl.DataFrame) -> bool:
 
 
 @deal.pre(lambda series: len(series) > 0)
-@deal.pre(lambda series: _is_1hz_spaced(series))
+@deal.pre(lambda series: is_1hz_spaced(series))
 @deal.ensure(
     lambda _: all(
         length >= STANDSTILL_MIN_DURATION.total_seconds()
@@ -200,7 +200,7 @@ def mark_standstill(series: pl.DataFrame) -> pl.DataFrame:
 
 
 @deal.pre(lambda series: len(series) > 0)
-@deal.pre(lambda series: _is_1hz_spaced(series))
+@deal.pre(lambda series: is_1hz_spaced(series))
 @deal.ensure(
     lambda _: (
         _.series["power"].min() is None
