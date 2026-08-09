@@ -296,3 +296,13 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Begründung:** TSS ist die exaktere Kennzahl bei vorhandenem Powermeter, TRIMP deckt jedes Training über die Herzfrequenz ab. Ruhetage werden im vollständigen Datumsbereich als `training_load=0.0` geführt statt ausgelassen, damit die Kalenderansicht eine lückenlose Wochen-/Tage-Struktur hat.
 
 ---
+
+## Meilenstein 8: Intervallanalyse
+
+### Lokale Baseline: zentrierter rollierender Median über 600s, unabhängig vom Stillstand
+
+**Entscheidung:** `compute_baseline()` in `src/intervals/preprocessing.py` legt einen zentrierten rollierenden Median (`BASELINE_WINDOW_S = 600`, `min_samples=1`) über die rohe Leistung, ohne Stillstand-Bereiche vorher auszuschließen.
+
+**Begründung:** Ein 10-Minuten-Fenster überdeckt einzelne Ampelstopps ausreichend, sodass eine vorgeschaltete Kopplung an die Stillstand-Erkennung unnötige Komplexität wäre. Randbehandlung durch schrumpfendes statt aufgefülltes Fenster, damit Anfang und Ende der Fahrt trotzdem eine Baseline bekommen.
+
+---

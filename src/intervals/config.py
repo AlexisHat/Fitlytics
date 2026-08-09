@@ -21,3 +21,9 @@ allowance for power-meter zero-offset drift, not literal 0 W."""
 STANDSTILL_SPEED_THRESHOLD_MS: Final = 0.5
 """Speed at or below this (1.8 km/h) is "near zero" for standstill
 detection — a small allowance for GPS jitter while stationary."""
+
+BASELINE_WINDOW_S: Final = 600
+"""Width, in seconds, of the centred rolling-median window used to estimate
+a ride's local baseline power. Long enough to smooth over an interval
+repetition without being so long it stops tracking a ride whose base
+intensity drifts over its duration (e.g. warm-up vs. a climb)."""

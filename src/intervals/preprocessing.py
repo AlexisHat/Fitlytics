@@ -8,7 +8,8 @@ row per record" into "one row per second, with recording gaps left as
 explicit nulls" rather than actually changing the sample rate. On top of
 that grid, standstill detection marks stretches where the rider stopped
 (e.g. a red light) while the device kept recording — a different kind of
-hard block boundary than a recording gap.
+hard block boundary than a recording gap — and a rolling median estimates
+the ride's local baseline power that later steps compare against.
 """
 
 from datetime import timedelta
@@ -19,6 +20,7 @@ import deal
 import polars as pl
 
 from intervals.config import (
+    BASELINE_WINDOW_S,
     STANDSTILL_MIN_DURATION,
     STANDSTILL_POWER_THRESHOLD_W,
     STANDSTILL_SPEED_THRESHOLD_MS,
@@ -103,12 +105,25 @@ def _run_lengths(flags: list[bool]) -> list[int]:
     return [len(list(group)) for value, group in groupby(flags) if value]
 
 
+def _is_1hz_spaced(series: pl.DataFrame) -> bool:
+    """Whether every row of ``series`` is exactly one second after the last.
+
+    >>> import polars as pl
+    >>> from datetime import UTC, datetime, timedelta
+    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+    >>> stamps = pl.Series([start, start + timedelta(seconds=1)])
+    >>> _is_1hz_spaced(pl.DataFrame({"timestamp": stamps}))
+    True
+    >>> stamps = pl.Series([start, start + timedelta(seconds=2)])
+    >>> _is_1hz_spaced(pl.DataFrame({"timestamp": stamps}))
+    False
+    """
+    gaps = series["timestamp"].diff().drop_nulls()
+    return bool((gaps == timedelta(seconds=1)).all())
+
+
 @deal.pre(lambda series: len(series) > 0)
-@deal.pre(
-    lambda series: (
-        series["timestamp"].diff().drop_nulls() == timedelta(seconds=1)
-    ).all()
-)
+@deal.pre(lambda series: _is_1hz_spaced(series))
 @deal.ensure(
     lambda _: all(
         length >= STANDSTILL_MIN_DURATION.total_seconds()
@@ -181,4 +196,56 @@ def mark_standstill(series: pl.DataFrame) -> pl.DataFrame:
             ).alias("is_standstill")
         )
         .drop("_near_zero", "_run_id", "_run_length")
+    )
+
+
+@deal.pre(lambda series: len(series) > 0)
+@deal.pre(lambda series: _is_1hz_spaced(series))
+@deal.ensure(
+    lambda _: (
+        _.series["power"].min() is None
+        or _.result["baseline_power"]
+        .drop_nulls()
+        .is_between(_.series["power"].min(), _.series["power"].max())
+        .all()
+    )
+)
+def compute_baseline(series: pl.DataFrame) -> pl.DataFrame:
+    """Estimate a ride's local baseline power with a centred rolling median.
+
+    A long window (``BASELINE_WINDOW_S``, a ten-minute default) smooths over
+    individual interval repetitions while still tracking a ride whose base
+    intensity drifts over its duration — a warm-up followed by a climb has a
+    different baseline for each part, which a single global median would
+    blur together. The window shrinks at both ends of the ride rather than
+    padding with invented values, so the first and last seconds still get a
+    baseline computed from the samples actually available there.
+
+    Args:
+        series: A 1 Hz-gridded time series, as returned by
+            :func:`resample_to_1hz`; must not be empty.
+
+    Returns:
+        ``series`` with an added ``baseline_power`` column: the centred
+        rolling median of ``power``, in watts. Null power readings (a gap,
+        or no power meter at all) are skipped rather than treated as zero;
+        a second with no non-null power within its window is null.
+
+    Raises:
+        deal.PreContractError: If ``series`` is empty or not spaced exactly
+            one second apart.
+
+    >>> from datetime import UTC, datetime
+    >>> records = [
+    ...     RecordPoint(timestamp=datetime(2026, 7, 16, 14, 0, i, tzinfo=UTC), power=p)
+    ...     for i, p in enumerate([100, 100, 100, 400, 100, 100, 100])
+    ... ]
+    >>> series = compute_baseline(resample_to_1hz(records))
+    >>> series["baseline_power"].to_list()
+    [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    """
+    return series.with_columns(
+        pl.col("power")
+        .rolling_median(window_size=BASELINE_WINDOW_S, center=True, min_samples=1)
+        .alias("baseline_power")
     )

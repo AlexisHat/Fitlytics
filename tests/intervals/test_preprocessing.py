@@ -9,7 +9,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from intervals.preprocessing import mark_standstill, resample_to_1hz
+from intervals.preprocessing import compute_baseline, mark_standstill, resample_to_1hz
 from models import RecordPoint
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
@@ -134,3 +134,42 @@ def test_standstill_rejects_irregularly_spaced_series() -> None:
     )
     with pytest.raises(deal.PreContractError):
         mark_standstill(series)
+
+
+def test_baseline_is_constant_for_constant_power() -> None:
+    series = compute_baseline(resample_to_1hz(_records_from_powers([150] * 30)))
+    assert series["baseline_power"].to_list() == [150.0] * 30
+
+
+def test_baseline_tracks_local_drift_not_a_single_global_median() -> None:
+    powers = [100] * 700 + [300] * 700
+    series = compute_baseline(resample_to_1hz(_records_from_powers(powers)))
+    baseline = series["baseline_power"].to_list()
+    assert baseline[350] == 100.0
+    assert baseline[1050] == 300.0
+
+
+def test_baseline_skips_null_power_within_the_window() -> None:
+    powers: list[int | None] = [100] * 10 + [None] * 5 + [100] * 10
+    series = compute_baseline(resample_to_1hz(_records_from_powers(powers)))
+    assert series["baseline_power"].to_list() == [100.0] * 25
+
+
+def test_baseline_is_null_without_any_power_data() -> None:
+    powers: list[int | None] = [None] * 30
+    series = compute_baseline(resample_to_1hz(_records_from_powers(powers)))
+    assert series["baseline_power"].null_count() == 30
+
+
+def test_baseline_rejects_empty_series() -> None:
+    empty = resample_to_1hz(_records_from_powers([200])).filter(pl.col("power") > 1000)
+    with pytest.raises(deal.PreContractError):
+        compute_baseline(empty)
+
+
+def test_baseline_rejects_irregularly_spaced_series() -> None:
+    series = resample_to_1hz(_records_from_powers([200] * 10)).filter(
+        pl.col("timestamp") != START + timedelta(seconds=3)
+    )
+    with pytest.raises(deal.PreContractError):
+        compute_baseline(series)
