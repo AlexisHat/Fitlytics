@@ -37,6 +37,7 @@ packages = [
     "src/validation",
     "src/analysis",
     "src/plots",
+    "src/intervals",
 ]
 
 [tool.mypy]
