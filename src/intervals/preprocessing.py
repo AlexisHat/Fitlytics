@@ -1,19 +1,28 @@
-"""Resampling of a workout's records onto a fixed-frequency time grid.
+"""Turning a workout's records into a clean signal for interval detection.
 
 Interval detection needs a strictly regular time axis so later steps
 (rolling windows, cumulative sums) don't have to special-case uneven sample
 spacing. Real devices already record close to 1 Hz (see
-``analysis.constants.PAUSE_GAP_THRESHOLD``), so this mostly turns "one row
-per record" into "one row per second, with recording gaps left as explicit
-nulls" rather than actually changing the sample rate.
+``analysis.constants.PAUSE_GAP_THRESHOLD``), so resampling mostly turns "one
+row per record" into "one row per second, with recording gaps left as
+explicit nulls" rather than actually changing the sample rate. On top of
+that grid, standstill detection marks stretches where the rider stopped
+(e.g. a red light) while the device kept recording — a different kind of
+hard block boundary than a recording gap.
 """
 
-from itertools import pairwise
+from datetime import timedelta
+from itertools import groupby, pairwise
 from typing import Final
 
 import deal
 import polars as pl
 
+from intervals.config import (
+    STANDSTILL_MIN_DURATION,
+    STANDSTILL_POWER_THRESHOLD_W,
+    STANDSTILL_SPEED_THRESHOLD_MS,
+)
 from models import RecordPoint
 
 _RESAMPLED_COLUMNS: Final[tuple[str, ...]] = (
@@ -83,3 +92,93 @@ def resample_to_1hz(records: list[RecordPoint]) -> pl.DataFrame:
         }
     )
     return grid.join(original, on="timestamp", how="left").sort("timestamp")
+
+
+def _run_lengths(flags: list[bool]) -> list[int]:
+    """Lengths of the maximal True-runs in a boolean sequence.
+
+    >>> _run_lengths([False, True, True, False, True])
+    [2, 1]
+    """
+    return [len(list(group)) for value, group in groupby(flags) if value]
+
+
+@deal.pre(lambda series: len(series) > 0)
+@deal.pre(
+    lambda series: (
+        series["timestamp"].diff().drop_nulls() == timedelta(seconds=1)
+    ).all()
+)
+@deal.ensure(
+    lambda _: all(
+        length >= STANDSTILL_MIN_DURATION.total_seconds()
+        for length in _run_lengths(_.result["is_standstill"].to_list())
+    )
+)
+def mark_standstill(series: pl.DataFrame) -> pl.DataFrame:
+    """Mark rows where the rider stood still while recording kept running.
+
+    Distinct from a recording gap (see :func:`resample_to_1hz`): here the
+    device keeps sampling throughout, e.g. waiting at a red light, whereas a
+    gap means recording itself stopped. Both are, deliberately, hard block
+    boundaries for interval detection — just for different reasons.
+
+    Args:
+        series: A 1 Hz-gridded time series, as returned by
+            :func:`resample_to_1hz`; must not be empty.
+
+    Returns:
+        ``series`` with an added boolean ``is_standstill`` column, True for
+        every row in a contiguous near-zero-power stretch of at least
+        ``STANDSTILL_MIN_DURATION``. If any speed was recorded at all,
+        speed must also be near zero throughout the stretch; a workout with
+        no speed data at all (e.g. an indoor trainer without a speed
+        sensor) is judged on power alone. A row with no power reading (a
+        gap, or a workout with no power meter at all) is never marked as
+        standstill.
+
+    Raises:
+        deal.PreContractError: If ``series`` is empty or not spaced exactly
+            one second apart.
+
+    >>> from datetime import UTC, datetime
+    >>> records = [
+    ...     RecordPoint(timestamp=datetime(2026, 7, 16, 14, 0, i, tzinfo=UTC), power=p)
+    ...     for i, p in enumerate([200] * 5 + [0] * 25 + [200] * 5)
+    ... ]
+    >>> series = mark_standstill(resample_to_1hz(records))
+    >>> series["is_standstill"].to_list()[:5]
+    [False, False, False, False, False]
+    >>> all(series["is_standstill"].to_list()[5:30])
+    True
+    >>> series["is_standstill"].to_list()[30:]
+    [False, False, False, False, False]
+    """
+    has_speed = series["speed_ms"].drop_nulls().len() > 0
+
+    near_zero = pl.col("power").is_not_null() & (
+        pl.col("power") <= STANDSTILL_POWER_THRESHOLD_W
+    )
+    if has_speed:
+        near_zero = (
+            near_zero
+            & pl.col("speed_ms").is_not_null()
+            & (pl.col("speed_ms") <= STANDSTILL_SPEED_THRESHOLD_MS)
+        )
+
+    with_runs = series.with_columns(near_zero.alias("_near_zero")).with_columns(
+        (pl.col("_near_zero") != pl.col("_near_zero").shift(1, fill_value=False))
+        .cum_sum()
+        .alias("_run_id")
+    )
+    run_lengths = with_runs.group_by("_run_id").agg(pl.len().alias("_run_length"))
+    return (
+        with_runs.join(run_lengths, on="_run_id", how="left")
+        .with_columns(
+            (
+                pl.col("_near_zero")
+                & (pl.col("_run_length") >= STANDSTILL_MIN_DURATION.total_seconds())
+            ).alias("is_standstill")
+        )
+        .drop("_near_zero", "_run_id", "_run_length")
+    )
