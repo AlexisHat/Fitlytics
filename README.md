@@ -4,8 +4,9 @@ Python-Anwendung zur Auswertung von Trainingsdaten aus `.fit`-Dateien und Recove
 aus Health-CSV-Dateien: Kennzahlen, Intervallanalyse und Diagramme in einer
 Streamlit-Oberfläche.
 
-> Das Projekt befindet sich in früher Entwicklung (Projektgerüst). Die Streamlit-Oberfläche
-> und die Fachlogik folgen in späteren Ausbaustufen.
+> Das Projekt befindet sich in Entwicklung. Die Streamlit-Oberfläche entsteht gerade
+> schrittweise; die SQLite-Speicherung folgt erst danach — hochgeladene Daten gelten
+> bislang nur für die laufende Browser-Sitzung.
 
 ## Voraussetzungen
 
@@ -21,10 +22,20 @@ uv sync
 Installiert alle Laufzeit- und Entwicklungsabhängigkeiten in eine projekteigene
 virtuelle Umgebung (`.venv/`).
 
+## Anwendung starten
+
+```bash
+uv run streamlit run src/app/main.py
+```
+
+Öffnet die Oberfläche unter `http://localhost:8501`. FIT-Dateien und die Whoop-CSV
+werden über die Seitenleiste hochgeladen; da die SQLite-Speicherung noch aussteht, gehen
+importierte Daten beim Neuladen der Seite oder Neustart der App wieder verloren.
+
 ## Projektstruktur
 
 ```
-src/             Quellcode, ein Package je Fachkonzern (models/, errors/, ...)
+src/             Quellcode, ein Package je Fachkonzern (models/, errors/, app/, ...)
 tests/           Tests (Unit-, Property- und Doctests)
 data/beispiel/   kleine, eingecheckte Beispieldateien (FIT/CSV, auch defekte Varianten)
 data/private/    eigene, echte Trainingsdaten (nicht Teil des Repositories)

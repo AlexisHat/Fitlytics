@@ -1,0 +1,107 @@
+"""Import uploaded FIT and Whoop CSV files into validated, session-ready data.
+
+Kept free of any ``streamlit`` import so it stays unit-testable like the rest
+of the codebase: a Streamlit ``UploadedFile`` and a plain ``Path`` are both
+just an ``IO[bytes]``/``Path`` source to the readers underneath.
+"""
+
+from collections.abc import Sequence
+from pathlib import Path
+from typing import IO, NamedTuple
+
+from errors import DataValidationError, FileImportError
+from models import RecoveryDay, Workout
+from readers.fit import import_fit_file
+from readers.whoop import import_whoop_csv
+from validation.recovery import validate_recovery_days
+from validation.report import ValidationReport
+from validation.workout import validate_workout
+
+UploadSource = Path | IO[bytes]
+"""A single uploaded file: a filesystem path in tests, or the file-like
+object Streamlit's ``st.file_uploader()`` returns at runtime."""
+
+
+class ImportFailure(NamedTuple):
+    """One file that could not be imported.
+
+    Attributes:
+        filename: Name of the file that failed, as shown by the uploader.
+        message: Human-readable reason, from the raised FitlyticsError.
+    """
+
+    filename: str
+    message: str
+
+
+class WorkoutImport(NamedTuple):
+    """One successfully imported and validated workout.
+
+    Attributes:
+        filename: Name of the source file, as shown by the uploader.
+        workout: The validated workout.
+        report: What validation discarded from it, if anything.
+    """
+
+    filename: str
+    workout: Workout
+    report: ValidationReport
+
+
+def import_workouts(
+    files: Sequence[UploadSource],
+) -> tuple[list[WorkoutImport], list[ImportFailure]]:
+    """Import and validate every uploaded FIT file, skipping unusable ones.
+
+    A single broken or empty file must not block the others: each file is
+    imported independently, and a failure is reported back rather than
+    raised, so the calling UI never has to catch an exception itself.
+
+    Args:
+        files: Uploaded FIT files, e.g. from
+            ``st.file_uploader(accept_multiple_files=True)``.
+
+    Returns:
+        The successfully imported workouts and the failures, both in the
+        order ``files`` was given.
+    """
+    imports: list[WorkoutImport] = []
+    failures: list[ImportFailure] = []
+    for file in files:
+        try:
+            workout, report = validate_workout(import_fit_file(file))
+        except (FileImportError, DataValidationError) as exc:
+            failures.append(ImportFailure(file.name, str(exc)))
+            continue
+        imports.append(WorkoutImport(file.name, workout, report))
+    return imports, failures
+
+
+def import_recovery_days(
+    file: UploadSource | None,
+) -> tuple[list[RecoveryDay], ValidationReport | None, ImportFailure | None]:
+    """Import and validate the uploaded Whoop CSV, if any.
+
+    Args:
+        file: The uploaded Whoop CSV, e.g. from ``st.file_uploader()``, or
+            None if nothing was uploaded yet.
+
+    Returns:
+        The validated recovery days (empty if ``file`` is None), the
+        validation report, and an import failure — of the latter two,
+        exactly one is set once ``file`` is not None.
+    """
+    if file is None:
+        return [], None, None
+
+    try:
+        days = import_whoop_csv(file)
+    except FileImportError as exc:
+        return [], None, ImportFailure(file.name, str(exc))
+
+    try:
+        cleaned, report = validate_recovery_days(days)
+    except DataValidationError as exc:
+        return [], None, ImportFailure(file.name, str(exc))
+
+    return cleaned, report, None
