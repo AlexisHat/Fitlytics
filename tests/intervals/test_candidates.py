@@ -9,11 +9,15 @@ import pytest
 
 from intervals.candidates import (
     _cusum,
+    _find_crossing,
     _pair_edges,
+    _refine_candidate,
     _smooth_power,
     find_rough_candidates,
+    refine_candidates,
 )
 from intervals.config import MEDIUM_SCALE
+from intervals.evaluation import Interval, evaluate
 from intervals.preprocessing import compute_baseline, resample_to_1hz
 from intervals.scenarios import clean_5x4min
 from models import RecordPoint
@@ -90,3 +94,74 @@ def test_find_rough_candidates_rejects_irregularly_spaced_series() -> None:
     )
     with pytest.raises(deal.PreContractError):
         find_rough_candidates(series, MEDIUM_SCALE)
+
+
+def test_find_crossing_finds_a_rising_edge() -> None:
+    signal = np.array([100.0, 100.0, 250.0, 250.0])
+    assert _find_crossing(signal, around=1, threshold=225.0, margin=3, rising=True) == 2
+
+
+def test_find_crossing_finds_a_falling_edge() -> None:
+    signal = np.array([250.0, 250.0, 100.0, 100.0])
+    assert (
+        _find_crossing(signal, around=2, threshold=175.0, margin=3, rising=False) == 2
+    )
+
+
+def test_find_crossing_returns_none_outside_the_search_margin() -> None:
+    signal = np.array([100.0] * 10 + [250.0] * 10)
+    assert (
+        _find_crossing(signal, around=0, threshold=225.0, margin=2, rising=True) is None
+    )
+
+
+def test_find_crossing_ignores_a_nan_elsewhere_in_the_window() -> None:
+    # a brief gap right after the start doesn't hide the real crossing later
+    signal = np.array([100.0, np.nan, 100.0, 250.0, 250.0])
+    assert _find_crossing(signal, around=2, threshold=225.0, margin=3, rising=True) == 3
+
+
+def test_refine_candidate_tightens_a_wide_rough_window() -> None:
+    power = np.array([100.0] * 3 + [250.0] * 6 + [100.0] * 3)
+    assert _refine_candidate(power, (0, 11), MEDIUM_SCALE) == (3, 9)
+
+
+def test_refine_candidate_discards_a_signal_that_never_reaches_target() -> None:
+    # never rises meaningfully above baseline within the rough window
+    power = np.array([100.0] * 10)
+    assert _refine_candidate(power, (2, 8), MEDIUM_SCALE) is None
+
+
+def test_refine_candidate_falls_back_to_rough_end_without_an_exit_crossing() -> None:
+    # rises and stays high right up to the rough window's own end
+    power = np.array([100.0] * 3 + [250.0] * 6)
+    assert _refine_candidate(power, (0, 8), MEDIUM_SCALE) == (3, 8)
+
+
+def test_refine_candidates_drops_failed_candidates() -> None:
+    power = np.array([100.0] * 3 + [250.0] * 6 + [100.0] * 20)
+    # second window (12, 18) never leaves baseline -> should be dropped
+    result = refine_candidates(power, [(0, 9), (12, 18)], MEDIUM_SCALE)
+    assert len(result) == 1
+
+
+def test_refine_candidates_on_the_clean_scenario_matches_ground_truth() -> None:
+    records, reference = clean_5x4min()
+    series = compute_baseline(resample_to_1hz(records))
+    rough = find_rough_candidates(series, MEDIUM_SCALE)
+    raw_power = series["power"].cast(pl.Float64).to_numpy()
+    refined = refine_candidates(raw_power, rough, MEDIUM_SCALE)
+
+    start = records[0].timestamp
+    detected = [
+        Interval(start + timedelta(seconds=s), start + timedelta(seconds=e))
+        for s, e in refined
+    ]
+    result = evaluate(reference, detected)
+    assert result.true_positives == 5
+    assert result.false_positives == 0
+    assert result.false_negatives == 0
+    assert result.mean_start_offset_s is not None
+    assert result.mean_start_offset_s < 2.0
+    assert result.mean_end_offset_s is not None
+    assert result.mean_end_offset_s < 2.0
