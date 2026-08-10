@@ -23,10 +23,18 @@ STANDSTILL_SPEED_THRESHOLD_MS: Final = 0.5
 detection — a small allowance for GPS jitter while stationary."""
 
 BASELINE_WINDOW_S: Final = 600
-"""Width, in seconds, of the centred rolling-median window used to estimate
-a ride's local baseline power. Long enough to smooth over an interval
+"""Width, in seconds, of the centred rolling window used to estimate a
+ride's local baseline power. Long enough to smooth over an interval
 repetition without being so long it stops tracking a ride whose base
 intensity drifts over its duration (e.g. warm-up vs. a climb)."""
+
+BASELINE_QUANTILE: Final = 0.25
+"""Which rolling quantile of power counts as "baseline", not the median
+(0.5). A block's own repetitions can occupy a large share of the window (a
+5x4min session is more than half work), so the median often sits at or
+near the block's own power instead of the recovery level it's meant to
+represent. A low quantile stays anchored to the recovery/easy-riding level
+as long as some meaningful share of the window is spent there."""
 
 
 class Scale(NamedTuple):
@@ -35,48 +43,29 @@ class Scale(NamedTuple):
     Attributes:
         name: Short identifier, e.g. ``"mittel"``, used only for
             diagnostics.
-        smoothing_window_s: Width of the centred moving-average window
-            applied to power before edge-finding; should be at most half
-            this scale's target block duration, or a block gets smeared
-            past recognition.
         min_duration_s: Shortest candidate this scale accepts.
-        prominence_ws: Minimum CUSUM-peak prominence, in watt-seconds, for
-            an edge to count as real rather than noise. Deliberately well
-            below a genuine block's own prominence (a 4-minute block ~150 W
-            above baseline integrates to tens of thousands of watt-seconds)
-            — this only needs to filter out noise-level fluctuations, the
-            elevation and duration filters do the real, baseline-relative
-            filtering later.
         merge_gap_s: Longest gap between two candidates of this scale that
             still counts as "close enough" to merge into one.
     """
 
     name: str
-    smoothing_window_s: int
     min_duration_s: int
-    prominence_ws: float
     merge_gap_s: int
 
 
-MEDIUM_SCALE: Final = Scale(
-    name="mittel",
-    smoothing_window_s=20,
-    min_duration_s=60,
-    prominence_ws=300.0,
-    merge_gap_s=12,
-)
+MEDIUM_SCALE: Final = Scale(name="mittel", min_duration_s=60, merge_gap_s=12)
 """Targets 1-8 minute blocks (threshold efforts, sweet spot, VO2max) — see
 docs/entscheidungen.md for the scale table this is the first entry of."""
 
-HYSTERESIS_ENTRY_FRACTION: Final = 0.9
-"""Fraction of a candidate's estimated target power that the signal must
-rise above for its start edge to count as "entered"."""
+HYSTERESIS_ENTRY_FRACTION: Final = 0.20
+"""How far above the local baseline power must rise, as a fraction of the
+baseline itself, before a stretch counts as "entered" a block."""
 
-HYSTERESIS_EXIT_FRACTION: Final = 0.7
-"""Fraction of a candidate's estimated target power that the signal must
-fall below for its end edge to count as "exited". Lower than the entry
-fraction on purpose: a single, higher threshold would end a block at every
-minor dip, which is the most common failure mode on outdoor rides."""
+HYSTERESIS_EXIT_FRACTION: Final = 0.08
+"""How far above the local baseline power must stay to still count as
+"inside" a block once entered. Lower than the entry fraction on purpose: a
+single, shared threshold would end a block at every minor dip, which is the
+most common failure mode on outdoor rides."""
 
 MIN_ELEVATION_ABOVE_BASELINE_FRACTION: Final = 0.15
 """A candidate's power must exceed the local baseline by at least this

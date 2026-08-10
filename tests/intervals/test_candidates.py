@@ -3,23 +3,13 @@
 from datetime import UTC, datetime, timedelta
 
 import deal
-import numpy as np
 import polars as pl
 import pytest
 
-from intervals.candidates import (
-    _cusum,
-    _find_crossing,
-    _pair_edges,
-    _refine_candidate,
-    _smooth_power,
-    find_rough_candidates,
-    refine_candidates,
-)
+from intervals.candidates import _true_runs, find_threshold_candidates
 from intervals.config import MEDIUM_SCALE
-from intervals.evaluation import Interval, evaluate
 from intervals.preprocessing import compute_baseline, resample_to_1hz
-from intervals.scenarios import clean_5x4min
+from intervals.scenarios import clean_5x4min, rolling_terrain_no_intervals
 from models import RecordPoint
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -33,47 +23,65 @@ def _series(powers: list[int]) -> pl.DataFrame:
     return compute_baseline(resample_to_1hz(records))
 
 
-def test_smooth_power_of_a_constant_signal_is_unchanged() -> None:
-    series = _series([150] * 30)
-    smoothed = _smooth_power(series, MEDIUM_SCALE)
-    assert smoothed.to_list() == [150.0] * 30
+def test_true_runs_of_an_all_false_sequence() -> None:
+    assert _true_runs([False, False, False]) == []
 
 
-def test_cusum_rises_above_baseline_and_falls_below_it() -> None:
-    smoothed = pl.Series([200.0, 200.0, 200.0])
-    baseline = pl.Series([150.0, 150.0, 150.0])
-    result = _cusum(smoothed, baseline)
-    assert result.tolist() == [50.0, 100.0, 150.0]
+def test_true_runs_finds_multiple_separate_runs() -> None:
+    assert _true_runs([False, True, True, False, True]) == [(1, 3), (4, 5)]
 
 
-def test_cusum_treats_missing_values_as_at_baseline() -> None:
-    smoothed = pl.Series([200.0, None, 200.0])
-    baseline = pl.Series([150.0, 150.0, 150.0])
-    result = _cusum(smoothed, baseline)
-    assert result.tolist() == [50.0, 50.0, 100.0]
+def test_true_runs_includes_a_run_still_open_at_the_end() -> None:
+    assert _true_runs([True, True, False, True]) == [(0, 2), (3, 4)]
 
 
-def test_pair_edges_of_a_flat_signal_finds_nothing() -> None:
-    cusum = np.zeros(50)
-    assert _pair_edges(cusum, MEDIUM_SCALE) == []
+def test_find_threshold_candidates_enters_and_exits_a_clear_block() -> None:
+    series = _series([100] * 5 + [250] * 10 + [100] * 5)
+    assert find_threshold_candidates(series, MEDIUM_SCALE) == [(5, 15)]
 
 
-def test_pair_edges_closes_a_block_still_rising_at_the_last_sample() -> None:
-    # falls to a dip, then keeps rising to the very last sample - no cool-down
-    cusum = np.array([0, -3, -8, -3, 6, 16, 26, 36, 46], dtype=float)
-    scale = MEDIUM_SCALE._replace(prominence_ws=5.0)
-    assert _pair_edges(cusum, scale) == [(2, 8)]
+def test_find_threshold_candidates_tolerates_a_brief_dip_inside_a_block() -> None:
+    # a short dip that stays above the (lower) exit threshold shouldn't split
+    series = _series([100] * 5 + [250] * 10 + [180] * 3 + [250] * 10 + [100] * 5)
+    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    assert len(candidates) == 1
 
 
-def test_pair_edges_rejects_non_positive_prominence() -> None:
-    with pytest.raises(deal.PreContractError):
-        _pair_edges(np.zeros(10), MEDIUM_SCALE._replace(prominence_ws=0.0))
+def test_find_threshold_candidates_finds_nothing_on_a_flat_ride() -> None:
+    series = _series([150] * 60)
+    assert find_threshold_candidates(series, MEDIUM_SCALE) == []
 
 
-def test_find_rough_candidates_finds_five_on_the_clean_scenario() -> None:
+def test_find_threshold_candidates_ends_a_block_at_a_recording_gap() -> None:
+    # padding on both sides keeps the rolling baseline anchored near 100 W
+    # rather than getting pulled toward the blocks' own 250 W
+    padding_before = [
+        RecordPoint(timestamp=START + timedelta(seconds=i), power=100)
+        for i in range(60)
+    ]
+    block_1 = [
+        RecordPoint(timestamp=START + timedelta(seconds=60 + i), power=250)
+        for i in range(10)
+    ]
+    block_2 = [
+        RecordPoint(timestamp=START + timedelta(seconds=100 + i), power=250)
+        for i in range(10)
+    ]
+    padding_after = [
+        RecordPoint(timestamp=START + timedelta(seconds=110 + i), power=100)
+        for i in range(60)
+    ]
+    records = padding_before + block_1 + block_2 + padding_after
+    series = compute_baseline(resample_to_1hz(records))
+    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    # the gap rows (70-99) can never be "in" a block, splitting the run
+    assert len(candidates) == 2
+
+
+def test_find_threshold_candidates_matches_five_blocks_on_the_clean_scenario() -> None:
     records, reference = clean_5x4min()
     series = compute_baseline(resample_to_1hz(records))
-    candidates = find_rough_candidates(series, MEDIUM_SCALE)
+    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
     assert len(candidates) == 5
 
     start = records[0].timestamp
@@ -82,86 +90,26 @@ def test_find_rough_candidates_finds_five_on_the_clean_scenario() -> None:
         assert ref.start <= midpoint <= ref.end
 
 
-def test_find_rough_candidates_rejects_empty_series() -> None:
+def test_find_threshold_candidates_runs_on_wavy_terrain_without_crashing() -> None:
+    # a bare hysteresis pass has no duration/homogeneity notion, so short
+    # terrain ripples crossing the threshold are expected here; whether the
+    # full pipeline correctly rejects all of them is checked in
+    # test_filtering.py against find_candidates(), not this raw step.
+    records, _ = rolling_terrain_no_intervals()
+    series = compute_baseline(resample_to_1hz(records))
+    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    assert all(start < end for start, end in candidates)
+
+
+def test_find_threshold_candidates_rejects_empty_series() -> None:
     empty = _series([100]).filter(pl.col("power") > 1000)
     with pytest.raises(deal.PreContractError):
-        find_rough_candidates(empty, MEDIUM_SCALE)
+        find_threshold_candidates(empty, MEDIUM_SCALE)
 
 
-def test_find_rough_candidates_rejects_irregularly_spaced_series() -> None:
+def test_find_threshold_candidates_rejects_irregularly_spaced_series() -> None:
     series = _series([100] * 10).filter(
         pl.col("timestamp") != START + timedelta(seconds=3)
     )
     with pytest.raises(deal.PreContractError):
-        find_rough_candidates(series, MEDIUM_SCALE)
-
-
-def test_find_crossing_finds_a_rising_edge() -> None:
-    signal = np.array([100.0, 100.0, 250.0, 250.0])
-    assert _find_crossing(signal, around=1, threshold=225.0, margin=3, rising=True) == 2
-
-
-def test_find_crossing_finds_a_falling_edge() -> None:
-    signal = np.array([250.0, 250.0, 100.0, 100.0])
-    assert (
-        _find_crossing(signal, around=2, threshold=175.0, margin=3, rising=False) == 2
-    )
-
-
-def test_find_crossing_returns_none_outside_the_search_margin() -> None:
-    signal = np.array([100.0] * 10 + [250.0] * 10)
-    assert (
-        _find_crossing(signal, around=0, threshold=225.0, margin=2, rising=True) is None
-    )
-
-
-def test_find_crossing_ignores_a_nan_elsewhere_in_the_window() -> None:
-    # a brief gap right after the start doesn't hide the real crossing later
-    signal = np.array([100.0, np.nan, 100.0, 250.0, 250.0])
-    assert _find_crossing(signal, around=2, threshold=225.0, margin=3, rising=True) == 3
-
-
-def test_refine_candidate_tightens_a_wide_rough_window() -> None:
-    power = np.array([100.0] * 3 + [250.0] * 6 + [100.0] * 3)
-    assert _refine_candidate(power, (0, 11), MEDIUM_SCALE) == (3, 9)
-
-
-def test_refine_candidate_discards_a_signal_that_never_reaches_target() -> None:
-    # never rises meaningfully above baseline within the rough window
-    power = np.array([100.0] * 10)
-    assert _refine_candidate(power, (2, 8), MEDIUM_SCALE) is None
-
-
-def test_refine_candidate_falls_back_to_rough_end_without_an_exit_crossing() -> None:
-    # rises and stays high right up to the rough window's own end
-    power = np.array([100.0] * 3 + [250.0] * 6)
-    assert _refine_candidate(power, (0, 8), MEDIUM_SCALE) == (3, 8)
-
-
-def test_refine_candidates_drops_failed_candidates() -> None:
-    power = np.array([100.0] * 3 + [250.0] * 6 + [100.0] * 20)
-    # second window (12, 18) never leaves baseline -> should be dropped
-    result = refine_candidates(power, [(0, 9), (12, 18)], MEDIUM_SCALE)
-    assert len(result) == 1
-
-
-def test_refine_candidates_on_the_clean_scenario_matches_ground_truth() -> None:
-    records, reference = clean_5x4min()
-    series = compute_baseline(resample_to_1hz(records))
-    rough = find_rough_candidates(series, MEDIUM_SCALE)
-    raw_power = series["power"].cast(pl.Float64).to_numpy()
-    refined = refine_candidates(raw_power, rough, MEDIUM_SCALE)
-
-    start = records[0].timestamp
-    detected = [
-        Interval(start + timedelta(seconds=s), start + timedelta(seconds=e))
-        for s, e in refined
-    ]
-    result = evaluate(reference, detected)
-    assert result.true_positives == 5
-    assert result.false_positives == 0
-    assert result.false_negatives == 0
-    assert result.mean_start_offset_s is not None
-    assert result.mean_start_offset_s < 2.0
-    assert result.mean_end_offset_s is not None
-    assert result.mean_end_offset_s < 2.0
+        find_threshold_candidates(series, MEDIUM_SCALE)

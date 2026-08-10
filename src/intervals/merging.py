@@ -86,8 +86,8 @@ def merge_candidates(
     Args:
         series: The time series the candidates were found on, with
             ``power``, ``baseline_power`` and ``is_standstill`` columns.
-        candidates: Refined ``(start_index, end_index)`` windows, as
-            returned by :func:`~intervals.candidates.refine_candidates`.
+        candidates: ``(start_index, end_index)`` windows, as returned by
+            :func:`~intervals.candidates.find_threshold_candidates`.
         scale: The time scale's tuning parameters.
 
     Returns:

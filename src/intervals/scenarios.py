@@ -13,6 +13,15 @@ from models import RecordPoint
 _WARMUP_POWER_W = 100.0
 _INTERVAL_POWER_W = 250.0
 _RECOVERY_POWER_W = 100.0
+_BASELINE_PADDING_S = 300
+"""A ride that starts or stops recording right at the edge of a real effort
+starves the local baseline of clean samples exactly where it needs them
+most — the rolling window near the ride's own start or end has nothing but
+the effort itself to average over, pulling the baseline up toward the
+block instead of tracking the true recovery level. Every scenario whose
+first or last segment would otherwise be a real interval gets this padding
+at that end, matching how a real rider warms up before and coasts after an
+effort rather than starting or stopping recording mid-effort."""
 
 
 def clean_5x4min(seed: int = 0) -> tuple[list[RecordPoint], list[Interval]]:
@@ -29,12 +38,11 @@ def clean_5x4min(seed: int = 0) -> tuple[list[RecordPoint], list[Interval]]:
     5
     """
     segments = [RideSegment(120, _WARMUP_POWER_W, noise_std_w=3.0)]
-    for rep in range(5):
+    for _ in range(5):
         segments.append(
             RideSegment(240, _INTERVAL_POWER_W, is_interval=True, noise_std_w=3.0)
         )
-        if rep < 4:
-            segments.append(RideSegment(180, _RECOVERY_POWER_W, noise_std_w=3.0))
+        segments.append(RideSegment(180, _RECOVERY_POWER_W, noise_std_w=3.0))
     return build_ride(segments, seed=seed)
 
 
@@ -55,10 +63,9 @@ def noisy_5x4min_with_fatigue(
     """
     rep_powers = [260.0, 250.0, 240.0, 230.0, 220.0]
     segments = [RideSegment(120, _WARMUP_POWER_W, noise_std_w=10.0)]
-    for rep, power in enumerate(rep_powers):
+    for power in rep_powers:
         segments.append(RideSegment(240, power, is_interval=True, noise_std_w=25.0))
-        if rep < len(rep_powers) - 1:
-            segments.append(RideSegment(180, _RECOVERY_POWER_W, noise_std_w=10.0))
+        segments.append(RideSegment(180, _RECOVERY_POWER_W, noise_std_w=10.0))
     return build_ride(segments, seed=seed)
 
 
@@ -99,6 +106,7 @@ def two_by_20min(seed: int = 0) -> tuple[list[RecordPoint], list[Interval]]:
         RideSegment(1200, 220.0, is_interval=True, noise_std_w=8.0),
         RideSegment(300, _RECOVERY_POWER_W, noise_std_w=8.0),
         RideSegment(1200, 220.0, is_interval=True, noise_std_w=8.0),
+        RideSegment(_BASELINE_PADDING_S, _RECOVERY_POWER_W, noise_std_w=8.0),
     ]
     return build_ride(segments, seed=seed)
 
@@ -168,9 +176,11 @@ def traffic_light_stop_mid_block(
     1
     """
     segments = [
+        RideSegment(_BASELINE_PADDING_S, _WARMUP_POWER_W, noise_std_w=5.0),
         RideSegment(240, _INTERVAL_POWER_W, is_interval=True, noise_std_w=5.0),
         RideSegment(12, 0.0, is_interval=True, noise_std_w=1.0),
         RideSegment(240, _INTERVAL_POWER_W, is_interval=True, noise_std_w=5.0),
+        RideSegment(_BASELINE_PADDING_S, _RECOVERY_POWER_W, noise_std_w=5.0),
     ]
     return build_ride(segments, seed=seed)
 
@@ -190,8 +200,10 @@ def recording_gap_mid_block(seed: int = 0) -> tuple[list[RecordPoint], list[Inte
     2
     """
     segments = [
+        RideSegment(_BASELINE_PADDING_S, _WARMUP_POWER_W, noise_std_w=5.0),
         RideSegment(240, _INTERVAL_POWER_W, is_interval=True, noise_std_w=5.0),
         RideSegment(60, None),
         RideSegment(240, _INTERVAL_POWER_W, is_interval=True, noise_std_w=5.0),
+        RideSegment(_BASELINE_PADDING_S, _RECOVERY_POWER_W, noise_std_w=5.0),
     ]
     return build_ride(segments, seed=seed)

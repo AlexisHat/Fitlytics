@@ -8,7 +8,7 @@ row per record" into "one row per second, with recording gaps left as
 explicit nulls" rather than actually changing the sample rate. On top of
 that grid, standstill detection marks stretches where the rider stopped
 (e.g. a red light) while the device kept recording — a different kind of
-hard block boundary than a recording gap — and a rolling median estimates
+hard block boundary than a recording gap — and a rolling quantile estimates
 the ride's local baseline power that later steps compare against.
 """
 
@@ -20,6 +20,7 @@ import deal
 import polars as pl
 
 from intervals.config import (
+    BASELINE_QUANTILE,
     BASELINE_WINDOW_S,
     STANDSTILL_MIN_DURATION,
     STANDSTILL_POWER_THRESHOLD_W,
@@ -211,13 +212,17 @@ def mark_standstill(series: pl.DataFrame) -> pl.DataFrame:
     )
 )
 def compute_baseline(series: pl.DataFrame) -> pl.DataFrame:
-    """Estimate a ride's local baseline power with a centred rolling median.
+    """Estimate a ride's local baseline power with a centred rolling quantile.
 
     A long window (``BASELINE_WINDOW_S``, a ten-minute default) smooths over
     individual interval repetitions while still tracking a ride whose base
     intensity drifts over its duration — a warm-up followed by a climb has a
     different baseline for each part, which a single global median would
-    blur together. The window shrinks at both ends of the ride rather than
+    blur together. A low quantile (``BASELINE_QUANTILE``) rather than the
+    median: a repeated-interval session can spend more than half of any
+    600 s window actually working, so the median would often sit at or near
+    the block's own power instead of the recovery level baseline is meant
+    to represent. The window shrinks at both ends of the ride rather than
     padding with invented values, so the first and last seconds still get a
     baseline computed from the samples actually available there.
 
@@ -227,9 +232,10 @@ def compute_baseline(series: pl.DataFrame) -> pl.DataFrame:
 
     Returns:
         ``series`` with an added ``baseline_power`` column: the centred
-        rolling median of ``power``, in watts. Null power readings (a gap,
-        or no power meter at all) are skipped rather than treated as zero;
-        a second with no non-null power within its window is null.
+        rolling ``BASELINE_QUANTILE`` of ``power``, in watts. Null power
+        readings (a gap, or no power meter at all) are skipped rather than
+        treated as zero; a second with no non-null power within its window
+        is null.
 
     Raises:
         deal.PreContractError: If ``series`` is empty or not spaced exactly
@@ -246,6 +252,9 @@ def compute_baseline(series: pl.DataFrame) -> pl.DataFrame:
     """
     return series.with_columns(
         pl.col("power")
-        .rolling_median(window_size=BASELINE_WINDOW_S, center=True, min_samples=1)
+        .cast(pl.Float64)
+        .rolling_quantile(
+            BASELINE_QUANTILE, window_size=BASELINE_WINDOW_S, center=True, min_samples=1
+        )
         .alias("baseline_power")
     )
