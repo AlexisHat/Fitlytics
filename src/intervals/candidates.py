@@ -13,7 +13,12 @@ from itertools import pairwise
 import deal
 import polars as pl
 
-from intervals.config import HYSTERESIS_ENTRY_FRACTION, HYSTERESIS_EXIT_FRACTION, Scale
+from intervals.config import (
+    HYSTERESIS_ENTRY_FRACTION,
+    HYSTERESIS_EXIT_FRACTION,
+    HYSTERESIS_MARGIN_W,
+    Scale,
+)
 from intervals.preprocessing import is_1hz_spaced
 
 
@@ -74,8 +79,8 @@ def find_threshold_candidates(
     ...         "baseline_power": [100.0] * 20,
     ...     }
     ... )
-    >>> from intervals.config import MEDIUM_SCALE
-    >>> find_threshold_candidates(series, MEDIUM_SCALE)
+    >>> from intervals.config import DEFAULT_SCALE
+    >>> find_threshold_candidates(series, DEFAULT_SCALE)
     [(5, 15)]
     """
     in_block = False
@@ -86,8 +91,12 @@ def find_threshold_candidates(
         if power is None or baseline is None:
             in_block = False
         elif in_block:
-            in_block = power >= baseline * (1 + HYSTERESIS_EXIT_FRACTION)
+            in_block = power >= baseline * (1 + HYSTERESIS_EXIT_FRACTION) + (
+                HYSTERESIS_MARGIN_W
+            )
         else:
-            in_block = power >= baseline * (1 + HYSTERESIS_ENTRY_FRACTION)
+            in_block = power >= baseline * (1 + HYSTERESIS_ENTRY_FRACTION) + (
+                HYSTERESIS_MARGIN_W
+            )
         flags.append(in_block)
     return _true_runs(flags)

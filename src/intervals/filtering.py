@@ -15,6 +15,7 @@ import polars as pl
 
 from intervals.candidates import find_threshold_candidates
 from intervals.config import (
+    HYSTERESIS_MARGIN_W,
     MAX_HOMOGENEITY_CV,
     MIN_ELEVATION_ABOVE_BASELINE_FRACTION,
     Scale,
@@ -51,9 +52,11 @@ def _meets_elevation(series: pl.DataFrame, candidate: tuple[int, int]) -> bool:
     mean_baseline = block["baseline_power"].mean()
     if mean_power is None or mean_baseline is None:
         return False
-    return cast(float, mean_power) >= cast(float, mean_baseline) * (
-        1 + MIN_ELEVATION_ABOVE_BASELINE_FRACTION
+    threshold = (
+        cast(float, mean_baseline) * (1 + MIN_ELEVATION_ABOVE_BASELINE_FRACTION)
+        + HYSTERESIS_MARGIN_W
     )
+    return cast(float, mean_power) >= threshold
 
 
 def _meets_homogeneity(series: pl.DataFrame, candidate: tuple[int, int]) -> bool:

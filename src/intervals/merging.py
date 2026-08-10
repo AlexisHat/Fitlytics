@@ -101,8 +101,8 @@ def merge_candidates(
     ...         "is_standstill": [False] * 15,
     ...     }
     ... )
-    >>> from intervals.config import MEDIUM_SCALE
-    >>> merge_candidates(series, [(0, 5), (10, 15)], MEDIUM_SCALE)
+    >>> from intervals.config import DEFAULT_SCALE
+    >>> merge_candidates(series, [(0, 5), (10, 15)], DEFAULT_SCALE)
     [(0, 15)]
     """
     current = sorted(candidates)

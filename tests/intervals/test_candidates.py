@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from intervals.candidates import _true_runs, find_threshold_candidates
-from intervals.config import MEDIUM_SCALE
+from intervals.config import DEFAULT_SCALE
 from intervals.preprocessing import compute_baseline, resample_to_1hz
 from intervals.scenarios import clean_5x4min, rolling_terrain_no_intervals
 from models import RecordPoint
@@ -37,19 +37,19 @@ def test_true_runs_includes_a_run_still_open_at_the_end() -> None:
 
 def test_find_threshold_candidates_enters_and_exits_a_clear_block() -> None:
     series = _series([100] * 5 + [250] * 10 + [100] * 5)
-    assert find_threshold_candidates(series, MEDIUM_SCALE) == [(5, 15)]
+    assert find_threshold_candidates(series, DEFAULT_SCALE) == [(5, 15)]
 
 
 def test_find_threshold_candidates_tolerates_a_brief_dip_inside_a_block() -> None:
     # a short dip that stays above the (lower) exit threshold shouldn't split
     series = _series([100] * 5 + [250] * 10 + [180] * 3 + [250] * 10 + [100] * 5)
-    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    candidates = find_threshold_candidates(series, DEFAULT_SCALE)
     assert len(candidates) == 1
 
 
 def test_find_threshold_candidates_finds_nothing_on_a_flat_ride() -> None:
     series = _series([150] * 60)
-    assert find_threshold_candidates(series, MEDIUM_SCALE) == []
+    assert find_threshold_candidates(series, DEFAULT_SCALE) == []
 
 
 def test_find_threshold_candidates_ends_a_block_at_a_recording_gap() -> None:
@@ -73,7 +73,7 @@ def test_find_threshold_candidates_ends_a_block_at_a_recording_gap() -> None:
     ]
     records = padding_before + block_1 + block_2 + padding_after
     series = compute_baseline(resample_to_1hz(records))
-    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    candidates = find_threshold_candidates(series, DEFAULT_SCALE)
     # the gap rows (70-99) can never be "in" a block, splitting the run
     assert len(candidates) == 2
 
@@ -81,7 +81,7 @@ def test_find_threshold_candidates_ends_a_block_at_a_recording_gap() -> None:
 def test_find_threshold_candidates_matches_five_blocks_on_the_clean_scenario() -> None:
     records, reference = clean_5x4min()
     series = compute_baseline(resample_to_1hz(records))
-    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    candidates = find_threshold_candidates(series, DEFAULT_SCALE)
     assert len(candidates) == 5
 
     start = records[0].timestamp
@@ -97,14 +97,14 @@ def test_find_threshold_candidates_runs_on_wavy_terrain_without_crashing() -> No
     # test_filtering.py against find_candidates(), not this raw step.
     records, _ = rolling_terrain_no_intervals()
     series = compute_baseline(resample_to_1hz(records))
-    candidates = find_threshold_candidates(series, MEDIUM_SCALE)
+    candidates = find_threshold_candidates(series, DEFAULT_SCALE)
     assert all(start < end for start, end in candidates)
 
 
 def test_find_threshold_candidates_rejects_empty_series() -> None:
     empty = _series([100]).filter(pl.col("power") > 1000)
     with pytest.raises(deal.PreContractError):
-        find_threshold_candidates(empty, MEDIUM_SCALE)
+        find_threshold_candidates(empty, DEFAULT_SCALE)
 
 
 def test_find_threshold_candidates_rejects_irregularly_spaced_series() -> None:
@@ -112,4 +112,4 @@ def test_find_threshold_candidates_rejects_irregularly_spaced_series() -> None:
         pl.col("timestamp") != START + timedelta(seconds=3)
     )
     with pytest.raises(deal.PreContractError):
-        find_threshold_candidates(series, MEDIUM_SCALE)
+        find_threshold_candidates(series, DEFAULT_SCALE)

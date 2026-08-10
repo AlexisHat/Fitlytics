@@ -1,17 +1,21 @@
 """Automatic detection of interval blocks within a single workout."""
 
-from intervals.config import MEDIUM_SCALE, Scale
+from intervals.blocks import IntervalBlock, build_interval_block, build_interval_blocks
+from intervals.config import DEFAULT_SCALE, Scale
 from intervals.evaluation import Interval, IntervalEvaluation, evaluate, iou
 from intervals.filtering import find_candidates
 from intervals.preprocessing import compute_baseline, mark_standstill, resample_to_1hz
 from intervals.synthetic import RideSegment, build_ride
 
 __all__ = [
-    "MEDIUM_SCALE",
+    "DEFAULT_SCALE",
     "Interval",
+    "IntervalBlock",
     "IntervalEvaluation",
     "RideSegment",
     "Scale",
+    "build_interval_block",
+    "build_interval_blocks",
     "build_ride",
     "compute_baseline",
     "evaluate",

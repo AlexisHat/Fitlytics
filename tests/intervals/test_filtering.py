@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import polars as pl
 
-from intervals.config import MEDIUM_SCALE
+from intervals.config import DEFAULT_SCALE
 from intervals.evaluation import Interval, evaluate
 from intervals.filtering import (
     _is_clean,
@@ -38,9 +38,10 @@ def _series(
 
 
 def test_meets_min_duration() -> None:
-    assert _meets_min_duration((0, MEDIUM_SCALE.min_duration_s), MEDIUM_SCALE) is True
+    assert _meets_min_duration((0, DEFAULT_SCALE.min_duration_s), DEFAULT_SCALE) is True
     assert (
-        _meets_min_duration((0, MEDIUM_SCALE.min_duration_s - 1), MEDIUM_SCALE) is False
+        _meets_min_duration((0, DEFAULT_SCALE.min_duration_s - 1), DEFAULT_SCALE)
+        is False
     )
 
 
@@ -81,14 +82,14 @@ def test_meets_homogeneity_rejects_a_wildly_swinging_block() -> None:
 
 def test_filter_candidates_never_grows_the_list() -> None:
     series = _series([250.0] * 10, baseline=100.0)
-    result = filter_candidates(series, [(0, 10), (0, 5)], MEDIUM_SCALE)
+    result = filter_candidates(series, [(0, 10), (0, 5)], DEFAULT_SCALE)
     assert len(result) <= 2
 
 
 def test_find_candidates_matches_the_clean_5x4min_scenario_exactly() -> None:
     records, reference = clean_5x4min()
     series = mark_standstill(compute_baseline(resample_to_1hz(records)))
-    candidates = find_candidates(series, MEDIUM_SCALE)
+    candidates = find_candidates(series, DEFAULT_SCALE)
 
     start = records[0].timestamp
     detected = [
@@ -109,7 +110,7 @@ def test_find_candidates_on_wavy_terrain_stays_bounded() -> None:
     # wants, but bounding it here catches a real regression later.
     records, reference = rolling_terrain_no_intervals()
     series = mark_standstill(compute_baseline(resample_to_1hz(records)))
-    candidates = find_candidates(series, MEDIUM_SCALE)
+    candidates = find_candidates(series, DEFAULT_SCALE)
     assert reference == []
     assert len(candidates) <= 2
 
@@ -117,7 +118,7 @@ def test_find_candidates_on_wavy_terrain_stays_bounded() -> None:
 def test_find_candidates_on_the_noisy_fatigue_scenario_still_finds_all_five() -> None:
     records, reference = noisy_5x4min_with_fatigue()
     series = mark_standstill(compute_baseline(resample_to_1hz(records)))
-    candidates = find_candidates(series, MEDIUM_SCALE)
+    candidates = find_candidates(series, DEFAULT_SCALE)
 
     start = records[0].timestamp
     detected = [

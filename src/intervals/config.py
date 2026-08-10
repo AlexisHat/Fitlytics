@@ -38,14 +38,13 @@ as long as some meaningful share of the window is spent there."""
 
 
 class Scale(NamedTuple):
-    """Tuning parameters for one sliding-window time scale of candidate search.
+    """Tuning parameters for the sliding-window candidate search.
 
     Attributes:
-        name: Short identifier, e.g. ``"mittel"``, used only for
-            diagnostics.
-        min_duration_s: Shortest candidate this scale accepts.
-        merge_gap_s: Longest gap between two candidates of this scale that
-            still counts as "close enough" to merge into one.
+        name: Short identifier, used only for diagnostics.
+        min_duration_s: Shortest candidate accepted.
+        merge_gap_s: Longest gap between two candidates that still counts
+            as "close enough" to merge into one.
     """
 
     name: str
@@ -53,9 +52,11 @@ class Scale(NamedTuple):
     merge_gap_s: int
 
 
-MEDIUM_SCALE: Final = Scale(name="mittel", min_duration_s=60, merge_gap_s=12)
-"""Targets 1-8 minute blocks (threshold efforts, sweet spot, VO2max) — see
-docs/entscheidungen.md for the scale table this is the first entry of."""
+DEFAULT_SCALE: Final = Scale(name="standard", min_duration_s=60, merge_gap_s=12)
+"""The only scale detection currently runs at; see docs/entscheidungen.md
+for why per-duration-range scales (sprints vs. long steady efforts) turned
+out not to be needed once edge-finding stopped depending on a smoothing
+window sized to the target duration."""
 
 HYSTERESIS_ENTRY_FRACTION: Final = 0.20
 """How far above the local baseline power must rise, as a fraction of the
@@ -67,9 +68,16 @@ HYSTERESIS_EXIT_FRACTION: Final = 0.08
 single, shared threshold would end a block at every minor dip, which is the
 most common failure mode on outdoor rides."""
 
+HYSTERESIS_MARGIN_W: Final = 20
+"""Minimum absolute margin added on top of the entry/exit/elevation
+fractions above, so they stay meaningful when the local baseline itself is
+near zero (e.g. between sprints with a full stop) — a fraction of ~0 W is
+~0 W and would accept almost any positive power as "elevated"."""
+
 MIN_ELEVATION_ABOVE_BASELINE_FRACTION: Final = 0.15
 """A candidate's power must exceed the local baseline by at least this
-fraction to count as a real effort rather than a ripple in the base pace."""
+fraction (plus ``HYSTERESIS_MARGIN_W``) to count as a real effort rather
+than a ripple in the base pace."""
 
 MAX_HOMOGENEITY_CV: Final = 0.25
 """Maximum coefficient of variation (std / mean) of power within a
