@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date, timedelta
 from itertools import pairwise
+from statistics import quantiles
 
 import deal
 from pydantic import BaseModel, NonNegativeFloat
@@ -115,3 +116,48 @@ def build_calendar(
         )
         current += timedelta(days=1)
     return tuple(days)
+
+
+@deal.pre(lambda _: _.value >= 0)
+@deal.post(lambda result: 0 <= result <= 4)
+def bucket_training_load(loads: Sequence[float], value: float) -> int:
+    """Classify a day's training load into one of 5 GitHub-graph-style buckets.
+
+    Bucket 0 is reserved for rest days (``value == 0``). Buckets 1-4 split
+    the positive loads in ``loads`` into quartiles, so what counts as "hoch"
+    adapts to this session's own data instead of a fixed absolute TSS/TRIMP
+    threshold that would mean nothing without a long training history to
+    calibrate it against.
+
+    Args:
+        loads: Every day's training load in the calendar range being drawn,
+            including rest days (0.0); used only to derive the quartile
+            cut points, not to look up ``value`` itself.
+        value: The training load of the day being classified; must be
+            non-negative.
+
+    Returns:
+        0 for a rest day; otherwise 1 (lightest quarter of the positive
+        loads) to 4 (heaviest quarter). 4 if fewer than two positive loads
+        are available to split into quartiles, since a single effort is
+        trivially this calendar's heaviest.
+
+    >>> loads = [0.0, 50.0, 100.0, 150.0, 200.0]
+    >>> bucket_training_load(loads, 0.0)
+    0
+    >>> bucket_training_load(loads, 100.0)
+    2
+    >>> bucket_training_load(loads, 200.0)
+    4
+    """
+    if value <= 0:
+        return 0
+
+    positive = sorted(load for load in loads if load > 0)
+    if len(positive) < 2:
+        return 4
+
+    for bucket, cut_point in enumerate(quantiles(positive, n=4), start=1):
+        if value <= cut_point:
+            return bucket
+    return 4

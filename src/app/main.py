@@ -7,6 +7,8 @@ in ``st.session_state`` for the duration of the browser session.
 
 import streamlit as st
 
+from analysis.calendar import CalendarDay, build_calendar
+from app.calendar_view import render_calendar
 from app.data import import_recovery_days, import_workouts
 
 
@@ -21,6 +23,31 @@ def _optional_sidebar_number(label: str) -> int | None:
     """
     value = st.sidebar.number_input(label, min_value=0, value=0, step=1)
     return int(value) or None
+
+
+def _validated_hr_profile(
+    hr_rest: int | None, hr_max: int | None
+) -> tuple[int | None, int | None]:
+    """Guard against an invalid resting/maximum heart rate combination.
+
+    Downstream calculations (training load, heart-rate zones) require
+    hr_rest < hr_max as a contract precondition — a real invariant for
+    internal callers, but these two values come straight from sidebar
+    input here, so a typo must not reach them as a contract violation.
+
+    Args:
+        hr_rest: The entered resting heart rate, or None.
+        hr_max: The entered maximum heart rate, or None.
+
+    Returns:
+        ``(hr_rest, hr_max)`` unchanged, or ``(None, None)`` with an error
+        shown in the sidebar if both are set but hr_rest is not below
+        hr_max.
+    """
+    if hr_rest is not None and hr_max is not None and hr_rest >= hr_max:
+        st.sidebar.error("Ruhepuls muss unter dem Maximalpuls liegen.")
+        return None, None
+    return hr_rest, hr_max
 
 
 def _render_sidebar() -> None:
@@ -43,8 +70,11 @@ def _render_sidebar() -> None:
 
     st.sidebar.header("Einstellungen")
     st.session_state.ftp_watts = _optional_sidebar_number("FTP (Watt)")
-    st.session_state.hr_rest = _optional_sidebar_number("Ruhepuls (bpm)")
-    st.session_state.hr_max = _optional_sidebar_number("Maximalpuls (bpm)")
+    hr_rest = _optional_sidebar_number("Ruhepuls (bpm)")
+    hr_max = _optional_sidebar_number("Maximalpuls (bpm)")
+    st.session_state.hr_rest, st.session_state.hr_max = _validated_hr_profile(
+        hr_rest, hr_max
+    )
 
 
 def _render_import_log() -> None:
@@ -70,12 +100,47 @@ def _render_import_log() -> None:
             st.write(f"**Whoop-CSV** — {st.session_state.recovery_report.summary()}")
 
 
+def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
+    """Show a minimal summary of the selected day's workouts.
+
+    Full metrics, plots and interval analysis follow in a later milestone;
+    this only surfaces that a day was picked, to make the calendar's
+    click-to-select wiring visible end to end.
+
+    Args:
+        calendar_days: The currently rendered calendar days.
+    """
+    selected = st.session_state.get("selected_date")
+    if selected is None:
+        return
+
+    day = next((day for day in calendar_days if day.date == selected), None)
+    if day is None:
+        return
+
+    st.subheader(selected.isoformat())
+    if not day.workouts:
+        st.write("Ruhetag.")
+        return
+    for workout in day.workouts:
+        st.write(f"- {workout.sport} ab {workout.start_time.isoformat()}")
+
+
 def main() -> None:
     """Render the Fitlytics Streamlit app."""
     st.set_page_config(page_title="Fitlytics", layout="wide")
     st.title("Fitlytics")
     _render_sidebar()
     _render_import_log()
+
+    calendar_days = build_calendar(
+        st.session_state.workouts,
+        st.session_state.ftp_watts,
+        st.session_state.hr_rest,
+        st.session_state.hr_max,
+    )
+    render_calendar(calendar_days)
+    _render_selected_day(calendar_days)
 
 
 if __name__ == "__main__":

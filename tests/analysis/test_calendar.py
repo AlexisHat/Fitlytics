@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 import deal
 import pytest
 
-from analysis.calendar import build_calendar
+from analysis.calendar import bucket_training_load, build_calendar
 from analysis.load import training_load
 from models import RecordPoint, Workout
 
@@ -141,3 +141,33 @@ def test_build_calendar_rejects_a_non_positive_ftp() -> None:
 
     with pytest.raises(deal.PreContractError):
         build_calendar([workout], ftp_watts=0, hr_rest=None, hr_max=None)
+
+
+def test_bucket_training_load_rest_day_is_bucket_zero() -> None:
+    assert bucket_training_load([0.0, 50.0, 100.0], 0.0) == 0
+
+
+def test_bucket_training_load_splits_into_quartiles() -> None:
+    loads = [0.0, 50.0, 100.0, 150.0, 200.0]
+
+    buckets = [bucket_training_load(loads, value) for value in loads]
+
+    assert buckets == [0, 1, 2, 3, 4]
+
+
+def test_bucket_training_load_single_effort_is_the_top_bucket() -> None:
+    """One positive load has nothing to split into quartiles against, so it
+    is trivially this calendar's heaviest day."""
+    assert bucket_training_load([0.0, 0.0, 42.0], 42.0) == 4
+
+
+def test_bucket_training_load_stays_within_bounds() -> None:
+    loads = [0.0, 10.0, 500.0, 1000.0, 20.0, 30.0]
+
+    for value in loads:
+        assert 0 <= bucket_training_load(loads, value) <= 4
+
+
+def test_bucket_training_load_rejects_a_negative_value() -> None:
+    with pytest.raises(deal.PreContractError):
+        bucket_training_load([0.0, 50.0], -1.0)
