@@ -299,10 +299,44 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 ## Meilenstein 8: Intervallanalyse
 
-### Lokale Baseline: zentrierter rollierender Median über 600s, unabhängig vom Stillstand
+### Lokale Baseline: zentriertes rollierendes Quantil (25 %) über 600s statt Median
 
-**Entscheidung:** `compute_baseline()` in `src/intervals/preprocessing.py` legt einen zentrierten rollierenden Median (`BASELINE_WINDOW_S = 600`, `min_samples=1`) über die rohe Leistung, ohne Stillstand-Bereiche vorher auszuschließen.
+**Entscheidung:** `compute_baseline()` in `src/intervals/preprocessing.py` legt ein zentriertes rollierendes 25 %-Quantil (`BASELINE_QUANTILE = 0.25`, `BASELINE_WINDOW_S = 600`, `min_samples=1`) über die rohe Leistung, nicht den Median.
 
-**Begründung:** Ein 10-Minuten-Fenster überdeckt einzelne Ampelstopps ausreichend, sodass eine vorgeschaltete Kopplung an die Stillstand-Erkennung unnötige Komplexität wäre. Randbehandlung durch schrumpfendes statt aufgefülltes Fenster, damit Anfang und Ende der Fahrt trotzdem eine Baseline bekommen.
+**Begründung:** Bei einer Intervall-Session mit hohem Arbeitsanteil (z. B. 5×4 min bei 240s Arbeit zu 180s Pause) ist die Belastung streckenweise die Mehrheit im 600s-Fenster — der Median driftet dann Richtung Blockleistung statt das Erholungsniveau abzubilden, gemessen als Startversatz von 60s auf "5×4 min sauber". Ein niedriges Quantil bleibt am Erholungsniveau verankert, solange ein nennenswerter Anteil des Fensters dort liegt. Randbehandlung weiterhin durch schrumpfendes statt aufgefülltes Fenster.
+
+---
+
+### Kandidatensuche: direkte Hysterese-Schwelle statt CUSUM + `scipy`
+
+**Entscheidung:** Ein erster Entwurf fand Blockkanten über ein kumuliertes Abweichungssignal (CUSUM) mit `scipy.signal.find_peaks`. Das wurde verworfen zugunsten einer einfachen Zwei-Schwellen-Hysterese direkt auf der rohen Leistung gegen die lokale Baseline (`find_threshold_candidates()` in `src/intervals/candidates.py`) — ohne Glättung, ohne kumuliertes Signal, ohne `scipy`.
+
+**Begründung:** Der CUSUM-Ansatz brachte deutlich mehr Code und eine strukturelle Schwäche mit (ein isolierter Block ohne anschließenden Leistungsabfall erzeugt kein für `find_peaks` erkennbares Maximum, siehe frühere Fassung dieses Eintrags) und war für eine als "Sliding Window"-Erkennung skizzierte Aufgabe (Projektskizze) unangemessen aufwendig. Die einfachere Version behebt das CUSUM-Problem nebenbei (kein kumulatives Signal, das "stehen bleiben" kann) und kommt ohne `scipy`/`numpy` aus — beide Abhängigkeiten wieder aus `pyproject.toml` entfernt.
+
+---
+
+### Ausgabemodell: `IntervalBlock` mit Ø-Watt, Ø-Puls, Pulsentwicklung, Gleichmäßigkeit
+
+**Entscheidung:** `build_interval_block()` in `src/intervals/blocks.py` wandelt ein erkanntes Kandidatenfenster in das eigentliche Berichtsobjekt um. Pulsentwicklung ist definiert als Ø-Puls der zweiten Hälfte minus Ø-Puls der ersten Hälfte des Blocks (positiv = Puls steigt); Gleichmäßigkeit als 1 minus Variationskoeffizient der Leistung im Block.
+
+**Begründung:** Damit ist die in CLAUDE.md §11 offene Frage nach der Gleichmäßigkeits-Metrik entschieden (Variationskoeffizient, wie dort vorgeschlagen). Die Zweiteilung für die Pulsentwicklung ist die einfachste Definition, die eine Drift über den Block hinweg abbildet, ohne eine separate Regression zu benötigen.
+
+---
+
+## Meilenstein 9: Streamlit-Oberfläche
+
+### Kalender-Intensitätsstufen: Quartile der eigenen Belastungswerte statt fester Schwellen
+
+**Entscheidung:** `bucket_training_load()` in `src/analysis/calendar.py` klassifiziert einen Tag relativ zu den `training_load`-Werten des gerade angezeigten Kalenders (Quartile der positiven Werte), nicht anhand fester TSS/TRIMP-Schwellen. Bucket 0 ist reserviert für Ruhetage, 1-4 für die Intensitätsviertel. In der Oberfläche wirkt sich der Bucket nur auf Fett-Schrift/`type="primary"` (trainiert) vs. Normal/`type="secondary"` (Ruhetag) sowie einen Tooltip-Text aus — keine eigene Farbskala, siehe „App-Architektur"-Eintrag oben.
+
+**Begründung:** Ein fester Schwellenwert (z. B. TSS > 100 = "hoch") wäre ohne lange Trainingshistorie kalibriert zu raten. Relative Quartile bleiben unabhängig vom Umfang der gerade hochgeladenen Daten aussagekräftig — mit nur einer einzigen echten Trainingseinheit im Kalender ist sie automatisch Bucket 4 (Rest ist trivial), das genügt für die aktuelle Sitzungs-ohne-Persistenz-Situation.
+
+---
+
+### Intervallanalyse manuell per Button statt automatisch bei jedem Seitenaufruf
+
+**Entscheidung:** `_render_intervals()` löst die Erkennung nicht mehr automatisch aus, sobald ein Tag mit Workout angezeigt wird, sondern erst nach Klick auf "Intervallanalyse starten" pro Workout. Der Zustand (`state_key = f"interval_analysis_active_{workout.start_time.isoformat()}"`) bleibt in `st.session_state`, damit das Ergebnis auch nach einem Rerun durch ein anderes Widget (z. B. die GPS-Metrik-Auswahl) sichtbar bleibt.
+
+**Begründung:** nicht jede fahrt sind exakt intervalle
 
 ---

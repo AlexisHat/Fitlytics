@@ -1,12 +1,16 @@
 """Tests for intervals.blocks."""
 
+import math
 from datetime import UTC, datetime, timedelta
 
 import deal
 import polars as pl
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from intervals.blocks import (
+    IntervalBlock,
     build_interval_block,
     build_interval_blocks,
     summarize_interval_blocks,
@@ -143,3 +147,67 @@ def test_summarize_interval_blocks_single_block_has_zero_spread() -> None:
 def test_summarize_interval_blocks_rejects_an_empty_list() -> None:
     with pytest.raises(deal.PreContractError):
         summarize_interval_blocks([])
+
+
+@st.composite
+def _interval_blocks(draw: st.DrawFn) -> list[IntervalBlock]:
+    """A non-empty list of blocks, varying only what summarize_interval_blocks
+    actually reads (avg_power_w, evenness, heart_rate_drift_bpm)."""
+    count = draw(st.integers(min_value=1, max_value=8))
+    return [
+        IntervalBlock(
+            start=START,
+            end=START + timedelta(minutes=1),
+            duration=timedelta(minutes=1),
+            avg_power_w=draw(st.floats(min_value=0, max_value=2000, allow_nan=False)),
+            avg_power_relative_to_ftp=None,
+            avg_heart_rate=None,
+            heart_rate_drift_bpm=draw(
+                st.one_of(
+                    st.none(),
+                    st.floats(min_value=-100, max_value=100, allow_nan=False),
+                )
+            ),
+            evenness=draw(st.floats(min_value=0, max_value=1, allow_nan=False)),
+        )
+        for _ in range(count)
+    ]
+
+
+@given(blocks=_interval_blocks())
+def test_summarize_interval_blocks_count_matches_input(
+    blocks: list[IntervalBlock],
+) -> None:
+    assert summarize_interval_blocks(blocks).count == len(blocks)
+
+
+@given(blocks=_interval_blocks())
+def test_summarize_interval_blocks_power_spread_matches_min_max(
+    blocks: list[IntervalBlock],
+) -> None:
+    powers = [block.avg_power_w for block in blocks]
+
+    spread = summarize_interval_blocks(blocks).power_spread_w
+
+    assert spread == pytest.approx(max(powers) - min(powers))
+    assert spread >= 0.0
+
+
+@given(blocks=_interval_blocks())
+def test_summarize_interval_blocks_evenness_is_always_between_min_and_max(
+    blocks: list[IntervalBlock],
+) -> None:
+    # math.isclose tolerance, not a strict bound: average() itself only
+    # guarantees this up to floating-point rounding (see
+    # docs/entscheidungen.md, "Postcondition von average() toleriert
+    # Gleitkomma-Rundung").
+    evenness_values = [block.evenness for block in blocks]
+    low, high = min(evenness_values), max(evenness_values)
+
+    avg_evenness = summarize_interval_blocks(blocks).avg_evenness
+
+    assert (
+        (low <= avg_evenness <= high)
+        or math.isclose(avg_evenness, low)
+        or math.isclose(avg_evenness, high)
+    )

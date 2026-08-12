@@ -4,6 +4,8 @@ from datetime import UTC, date, datetime, timedelta
 
 import deal
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from analysis.calendar import bucket_training_load, build_calendar
 from analysis.load import training_load
@@ -171,3 +173,18 @@ def test_bucket_training_load_stays_within_bounds() -> None:
 def test_bucket_training_load_rejects_a_negative_value() -> None:
     with pytest.raises(deal.PreContractError):
         bucket_training_load([0.0, 50.0], -1.0)
+
+
+@given(
+    loads=st.lists(st.floats(min_value=0, max_value=1e6, allow_nan=False), min_size=1),
+    value=st.floats(min_value=0, max_value=1e6, allow_nan=False),
+)
+def test_bucket_training_load_is_always_within_bounds(
+    loads: list[float], value: float
+) -> None:
+    assert 0 <= bucket_training_load(loads, value) <= 4
+
+
+@given(loads=st.lists(st.floats(min_value=0, max_value=1e6, allow_nan=False)))
+def test_bucket_training_load_zero_is_always_bucket_zero(loads: list[float]) -> None:
+    assert bucket_training_load(loads, 0.0) == 0
