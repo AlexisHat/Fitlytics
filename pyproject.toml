@@ -39,6 +39,7 @@ packages = [
     "src/plots",
     "src/intervals",
     "src/app",
+    "src/storage",
 ]
 
 [tool.mypy]
