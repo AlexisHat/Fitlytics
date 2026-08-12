@@ -71,6 +71,7 @@ def init_db(path: str | Path) -> sqlite3.Connection:
     """
     try:
         conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
         with conn:
             conn.execute(_CREATE_WORKOUTS_TABLE)
             conn.execute(_CREATE_RECORDS_TABLE)

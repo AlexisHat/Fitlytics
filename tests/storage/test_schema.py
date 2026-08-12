@@ -37,7 +37,7 @@ def test_init_db_is_idempotent_and_keeps_existing_data(tmp_path: Path) -> None:
     rows = second.execute("SELECT sport FROM workouts").fetchall()
     second.close()
 
-    assert rows == [("cycling",)]
+    assert [row["sport"] for row in rows] == ["cycling"]
 
 
 def test_init_db_rejects_an_unopenable_path(tmp_path: Path) -> None:
