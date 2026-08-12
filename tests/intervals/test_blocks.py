@@ -6,7 +6,11 @@ import deal
 import polars as pl
 import pytest
 
-from intervals.blocks import build_interval_block, build_interval_blocks
+from intervals.blocks import (
+    build_interval_block,
+    build_interval_blocks,
+    summarize_interval_blocks,
+)
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -94,3 +98,48 @@ def test_build_interval_blocks_builds_one_report_per_candidate() -> None:
     blocks = build_interval_blocks(series, [(0, 5), (10, 15)], ftp_watts=250)
     assert len(blocks) == 2
     assert all(block.avg_power_w == 200.0 for block in blocks)
+
+
+def test_summarize_interval_blocks_counts_and_spreads_power() -> None:
+    series = _series([200] * 5 + [240] * 5)
+    blocks = build_interval_blocks(series, [(0, 5), (5, 10)])
+
+    summary = summarize_interval_blocks(blocks)
+
+    assert summary.count == 2
+    assert summary.power_spread_w == 40.0
+    assert summary.avg_evenness == pytest.approx(1.0)
+
+
+def test_summarize_interval_blocks_averages_only_the_drifts_that_exist() -> None:
+    series = _series([200] * 4, heart_rates=[140, 145, 150, 155])
+    with_hr = build_interval_block(series, (0, 4))
+    without_hr = build_interval_block(_series([200] * 3), (0, 3))
+
+    summary = summarize_interval_blocks([with_hr, without_hr])
+
+    assert summary.avg_heart_rate_drift_bpm == with_hr.heart_rate_drift_bpm
+
+
+def test_summarize_interval_blocks_drift_is_none_without_any_heart_rate() -> None:
+    series = _series([200] * 10)
+    blocks = build_interval_blocks(series, [(0, 5), (5, 10)])
+
+    summary = summarize_interval_blocks(blocks)
+
+    assert summary.avg_heart_rate_drift_bpm is None
+
+
+def test_summarize_interval_blocks_single_block_has_zero_spread() -> None:
+    series = _series([200] * 5)
+    blocks = build_interval_blocks(series, [(0, 5)])
+
+    summary = summarize_interval_blocks(blocks)
+
+    assert summary.count == 1
+    assert summary.power_spread_w == 0.0
+
+
+def test_summarize_interval_blocks_rejects_an_empty_list() -> None:
+    with pytest.raises(deal.PreContractError):
+        summarize_interval_blocks([])

@@ -13,7 +13,7 @@ from typing import cast
 
 import deal
 import polars as pl
-from pydantic import BaseModel, NonNegativeFloat
+from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 
 from analysis import average
 
@@ -142,3 +142,70 @@ def build_interval_blocks(
     return [
         build_interval_block(series, candidate, ftp_watts) for candidate in candidates
     ]
+
+
+class IntervalSummary(BaseModel):
+    """Aggregate quality signals across a workout's detected interval blocks.
+
+    Attributes:
+        count: Number of detected blocks.
+        avg_evenness: Mean evenness across all blocks (1.0 is perfectly
+            steady; see :attr:`IntervalBlock.evenness`).
+        avg_heart_rate_drift_bpm: Mean heart-rate drift across the blocks
+            that have one, or None if none of them do.
+        power_spread_w: Highest minus lowest block average power — how much
+            the effort varied from rep to rep; 0.0 for a single block.
+    """
+
+    count: PositiveInt
+    avg_evenness: float
+    avg_heart_rate_drift_bpm: float | None
+    power_spread_w: NonNegativeFloat
+
+
+@deal.pre(lambda blocks: len(blocks) > 0)
+@deal.post(lambda result: result.count > 0)
+def summarize_interval_blocks(blocks: list[IntervalBlock]) -> IntervalSummary:
+    """Aggregate quality signals across a workout's detected interval blocks.
+
+    Args:
+        blocks: The workout's detected interval blocks; must not be empty.
+
+    Returns:
+        The aggregate summary.
+
+    >>> from datetime import UTC, datetime, timedelta
+    >>> start = datetime(2026, 1, 1, tzinfo=UTC)
+    >>> block_a = IntervalBlock(
+    ...     start=start,
+    ...     end=start + timedelta(minutes=4),
+    ...     duration=timedelta(minutes=4),
+    ...     avg_power_w=260.0,
+    ...     avg_power_relative_to_ftp=None,
+    ...     avg_heart_rate=160.0,
+    ...     heart_rate_drift_bpm=5.0,
+    ...     evenness=0.95,
+    ... )
+    >>> block_b = block_a.model_copy(
+    ...     update={"avg_power_w": 240.0, "heart_rate_drift_bpm": 9.0, "evenness": 0.9}
+    ... )
+    >>> summary = summarize_interval_blocks([block_a, block_b])
+    >>> summary.count, summary.power_spread_w
+    (2, 20.0)
+    >>> round(summary.avg_evenness, 3)
+    0.925
+    >>> summary.avg_heart_rate_drift_bpm
+    7.0
+    """
+    drifts = [
+        block.heart_rate_drift_bpm
+        for block in blocks
+        if block.heart_rate_drift_bpm is not None
+    ]
+    powers = [block.avg_power_w for block in blocks]
+    return IntervalSummary(
+        count=len(blocks),
+        avg_evenness=average([block.evenness for block in blocks]),
+        avg_heart_rate_drift_bpm=average(drifts) if drifts else None,
+        power_spread_w=max(powers) - min(powers),
+    )
