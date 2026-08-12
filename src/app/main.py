@@ -10,6 +10,7 @@ import streamlit as st
 from analysis.calendar import CalendarDay, build_calendar
 from app.calendar_view import render_calendar
 from app.data import import_recovery_days, import_workouts
+from app.day_view import render_day
 
 
 def _optional_sidebar_number(label: str) -> int | None:
@@ -101,11 +102,7 @@ def _render_import_log() -> None:
 
 
 def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
-    """Show a minimal summary of the selected day's workouts.
-
-    Full metrics, plots and interval analysis follow in a later milestone;
-    this only surfaces that a day was picked, to make the calendar's
-    click-to-select wiring visible end to end.
+    """Render the detail view for the day selected on the calendar, if any.
 
     Args:
         calendar_days: The currently rendered calendar days.
@@ -118,12 +115,13 @@ def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
     if day is None:
         return
 
-    st.subheader(selected.isoformat())
-    if not day.workouts:
-        st.write("Ruhetag.")
-        return
-    for workout in day.workouts:
-        st.write(f"- {workout.sport} ab {workout.start_time.isoformat()}")
+    render_day(
+        day,
+        tuple(st.session_state.recovery_days),
+        st.session_state.ftp_watts,
+        st.session_state.hr_rest,
+        st.session_state.hr_max,
+    )
 
 
 def main() -> None:

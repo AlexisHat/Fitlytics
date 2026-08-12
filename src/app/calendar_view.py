@@ -70,7 +70,7 @@ def _render_day_button(
         key=f"calendar_day_{day.date.isoformat()}",
         type="primary" if has_workouts else "secondary",
         help=help_text,
-        use_container_width=True,
+        width="stretch",
     )
     if clicked:
         st.session_state.selected_date = day.date
