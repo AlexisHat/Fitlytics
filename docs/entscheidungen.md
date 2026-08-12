@@ -297,6 +297,14 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 ---
 
+### Vier Diagramme aus der Projektskizze: zwei abgedeckt, zwei bewusst zurückgestellt
+
+**Entscheidung:** "Herzfrequenzverlauf einer Einheit" (Projektskizze) ist durch den Timeline-Plot abgedeckt, "Trainingsdauer pro Einheit" durch die Kennzahlen-Kachel in der Tagesansicht. HRV-Verlauf über mehrere Tage und Vergleich Trainingsbelastung/Recovery werden vorerst nicht gebaut, obwohl sie laut Projektskizze zu "Das Wesentliche" gehören, nicht zu Nice-to-have.
+
+**Begründung:** Bewusste Priorisierung, Risiko akzeptiert. Ggf. vor Abgabe nachholen oder im Bericht als Abweichung begründen.
+
+---
+
 ## Meilenstein 8: Intervallanalyse
 
 ### Lokale Baseline: zentriertes rollierendes Quantil (25 %) über 600s statt Median
@@ -338,5 +346,39 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Entscheidung:** `_render_intervals()` löst die Erkennung nicht mehr automatisch aus, sobald ein Tag mit Workout angezeigt wird, sondern erst nach Klick auf "Intervallanalyse starten" pro Workout. Der Zustand (`state_key = f"interval_analysis_active_{workout.start_time.isoformat()}"`) bleibt in `st.session_state`, damit das Ergebnis auch nach einem Rerun durch ein anderes Widget (z. B. die GPS-Metrik-Auswahl) sichtbar bleibt.
 
 **Begründung:** nicht jede fahrt sind exakt intervalle
+
+---
+
+## Meilenstein 10: SQLite-Speicherung
+
+### Bibliothek: `sqlite3` aus der Standardbibliothek
+
+**Entscheidung:** `sqlite3` statt SQLAlchemy oder `sqlmodel`.
+
+**Begründung:** War schon in der Projektskizze so vorgesehen, keine neue Abhängigkeit. Pydantic-Modelle sind bereits die interne Datenschicht — ein ORM würde nur eine zweite, parallele Modell-Hierarchie einführen. Passt zu "Einfachheit vor Library-Anspruch".
+
+---
+
+### `conn.row_factory = sqlite3.Row` statt Positions-Tupel
+
+**Entscheidung:** Zeilen aus `SELECT`s werden per Spaltenname gelesen (`row["sport"]`), nicht per Index (`row[2]`).
+
+**Begründung:** Robuster gegen künftige Spaltenumsortierung in den `SELECT`-Statements, lesbarer beim Zuordnen zu den Pydantic-Feldern.
+
+---
+
+### Speicherzeitpunkt: automatisch bei jedem Upload
+
+**Entscheidung:** Workouts werden automatisch bei jedem Upload in SQLite gespeichert, kein separater "Speichern"-Button. Vorher wird geprüft, ob die Einheit schon in der DB existiert (genaue Prüflogik noch offen — Teil der Schema-Diskussion).
+
+**Begründung:** Weniger Klicks; ohne Prüfung würde erneutes Hochladen derselben Datei zu doppelten Einträgen führen.
+
+---
+
+### Datenbank-Pfad: `data/private/fitlytics.db`, Verzeichnis wird bei Bedarf angelegt
+
+**Entscheidung:** Die DB liegt unter `data/private/`, demselben (bereits per `.gitignore` ausgeschlossenen) Ordner wie echte private Trainingsdaten. `_load_persisted_workouts()` legt das Verzeichnis vorher mit `mkdir(parents=True, exist_ok=True)` an.
+
+**Begründung:** Bei einem frischen Checkout existiert `data/private/` nicht (nicht Teil des Repositories) — ohne das `mkdir` würde `init_db()` beim allerersten Start mit `StorageError` fehlschlagen, was Anforderung 7 ("bei Dritten per README lauffähig") verletzen würde.
 
 ---

@@ -4,9 +4,7 @@ Python-Anwendung zur Auswertung von Trainingsdaten aus `.fit`-Dateien und Recove
 aus Health-CSV-Dateien: Kennzahlen, Intervallanalyse und Diagramme in einer
 Streamlit-Oberfläche.
 
-> Das Projekt befindet sich in Entwicklung. Die Streamlit-Oberfläche entsteht gerade
-> schrittweise; die SQLite-Speicherung folgt erst danach — hochgeladene Daten gelten
-> bislang nur für die laufende Browser-Sitzung.
+> Das Projekt befindet sich in Entwicklung.
 
 ## Voraussetzungen
 
@@ -29,13 +27,16 @@ uv run streamlit run src/app/main.py
 ```
 
 Öffnet die Oberfläche unter `http://localhost:8501`. FIT-Dateien und die Whoop-CSV
-werden über die Seitenleiste hochgeladen; da die SQLite-Speicherung noch aussteht, gehen
-importierte Daten beim Neuladen der Seite oder Neustart der App wieder verloren.
+werden über die Seitenleiste hochgeladen. Workouts landen dabei automatisch in einer
+lokalen SQLite-Datenbank (`data/private/fitlytics.db`) und bleiben über einen Neustart
+der App hinweg erhalten — ein erneutes Hochladen derselben Datei wird erkannt und
+übersprungen. Recovery-Tage und Intervallanalyse-Ergebnisse werden dagegen nicht
+gespeichert und müssen pro Sitzung neu hochgeladen bzw. berechnet werden.
 
 ## Projektstruktur
 
 ```
-src/             Quellcode, ein Package je Fachkonzern (models/, errors/, app/, ...)
+src/             Quellcode, ein Package je Fachkonzern (models/, errors/, app/, storage/, ...)
 tests/           Tests (Unit-, Property- und Doctests)
 data/beispiel/   kleine, eingecheckte Beispieldateien (FIT/CSV, auch defekte Varianten)
 data/private/    eigene, echte Trainingsdaten (nicht Teil des Repositories)

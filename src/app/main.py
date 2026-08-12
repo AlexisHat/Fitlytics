@@ -1,16 +1,31 @@
 """Streamlit entry point: sidebar data upload and session-wide settings.
 
-Run with ``uv run streamlit run src/app/main.py``. There is no persistence
-yet (SQLite storage is a later milestone), so all imported data lives only
-in ``st.session_state`` for the duration of the browser session.
+Run with ``uv run streamlit run src/app/main.py``. Uploaded workouts are
+saved to a local SQLite database (see ``storage``) and reloaded on every
+run, so they stay available without re-uploading in a later session.
+Recovery days and interval results are not persisted (see
+``docs/entscheidungen.md``, Meilenstein 10).
 """
+
+from pathlib import Path
+from typing import Final
 
 import streamlit as st
 
 from analysis.calendar import CalendarDay, build_calendar
 from app.calendar_view import render_calendar
-from app.data import import_recovery_days, import_workouts
+from app.data import (
+    WorkoutImport,
+    import_recovery_days,
+    import_workouts,
+    save_and_load_workouts,
+)
 from app.day_view import render_day
+from errors import StorageError
+from models import Workout
+from storage import init_db
+
+_DB_PATH: Final = Path("data/private/fitlytics.db")
 
 
 def _optional_sidebar_number(label: str) -> int | None:
@@ -51,6 +66,34 @@ def _validated_hr_profile(
     return hr_rest, hr_max
 
 
+def _load_persisted_workouts(workout_imports: list[WorkoutImport]) -> list[Workout]:
+    """Save this rerun's new uploads to SQLite and return every saved workout.
+
+    Falls back to just this rerun's uploads, with an error shown, if the
+    database itself is unavailable (e.g. an unwritable disk) — a storage
+    problem must not crash the app, only mean uploads won't outlive this
+    session.
+
+    Args:
+        workout_imports: This rerun's freshly imported and validated
+            workouts.
+
+    Returns:
+        Every workout ever saved, or just this rerun's uploads if
+        persistence failed.
+    """
+    try:
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = init_db(_DB_PATH)
+        try:
+            return save_and_load_workouts(conn, workout_imports)
+        finally:
+            conn.close()
+    except (StorageError, OSError) as exc:
+        st.error(f"Speicherung nicht verfügbar, gilt nur für diese Sitzung: {exc}")
+        return [imported.workout for imported in workout_imports]
+
+
 def _render_sidebar() -> None:
     """Render the sidebar's uploaders and settings, importing into session_state."""
     st.sidebar.header("Daten hochladen")
@@ -62,7 +105,7 @@ def _render_sidebar() -> None:
     workout_imports, workout_failures = import_workouts(fit_files or [])
     recovery_days, recovery_report, recovery_failure = import_recovery_days(csv_file)
 
-    st.session_state.workouts = [imported.workout for imported in workout_imports]
+    st.session_state.workouts = _load_persisted_workouts(workout_imports)
     st.session_state.workout_imports = workout_imports
     st.session_state.workout_failures = workout_failures
     st.session_state.recovery_days = recovery_days

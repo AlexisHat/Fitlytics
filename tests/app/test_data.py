@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from app.data import import_recovery_days, import_workouts
+from app.data import import_recovery_days, import_workouts, save_and_load_workouts
+from storage.schema import init_db
 
 VALID_FIT = Path("data/beispiel/training_gueltig.fit")
 BROKEN_FIT = Path("data/beispiel/training_defekt.fit")
@@ -75,3 +76,35 @@ def test_import_recovery_days_reports_empty_fixture_as_failure() -> None:
     assert days == []
     assert report is None
     assert failure is not None
+
+
+def test_save_and_load_workouts_roundtrips_a_new_upload() -> None:
+    conn = init_db(":memory:")
+    imports, _ = import_workouts([VALID_FIT])
+
+    loaded = save_and_load_workouts(conn, imports)
+
+    assert len(loaded) == 1
+    assert loaded[0].sport == "cycling"
+
+
+def test_save_and_load_workouts_skips_a_reupload_of_the_same_file() -> None:
+    conn = init_db(":memory:")
+    imports, _ = import_workouts([VALID_FIT])
+    save_and_load_workouts(conn, imports)
+
+    loaded_again = save_and_load_workouts(conn, imports)
+
+    assert len(loaded_again) == 1
+
+
+def test_save_and_load_workouts_returns_earlier_saves_without_new_uploads() -> None:
+    """A fresh browser session with nothing uploaded yet must still see
+    what was saved in an earlier session — that's the point of persisting."""
+    conn = init_db(":memory:")
+    imports, _ = import_workouts([VALID_FIT])
+    save_and_load_workouts(conn, imports)
+
+    loaded = save_and_load_workouts(conn, [])
+
+    assert len(loaded) == 1

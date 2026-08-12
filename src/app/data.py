@@ -5,6 +5,7 @@ of the codebase: a Streamlit ``UploadedFile`` and a plain ``Path`` are both
 just an ``IO[bytes]``/``Path`` source to the readers underneath.
 """
 
+import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
 from typing import IO, NamedTuple
@@ -13,6 +14,7 @@ from errors import DataValidationError, FileImportError
 from models import RecoveryDay, Workout
 from readers.fit import import_fit_file
 from readers.whoop import import_whoop_csv
+from storage.workouts import load_workouts, save_workout
 from validation.recovery import validate_recovery_days
 from validation.report import ValidationReport
 from validation.workout import validate_workout
@@ -75,6 +77,34 @@ def import_workouts(
             continue
         imports.append(WorkoutImport(file.name, workout, report))
     return imports, failures
+
+
+def save_and_load_workouts(
+    conn: sqlite3.Connection, workout_imports: Sequence[WorkoutImport]
+) -> list[Workout]:
+    """Persist this rerun's newly imported workouts and return every saved one.
+
+    Once a workout has been uploaded and saved, the database becomes the
+    single source of truth for what the calendar shows: a workout stays
+    visible without re-uploading it in a later session, and re-uploading
+    the same file again is a no-op (``save_workout`` skips it by
+    start_time).
+
+    Args:
+        conn: An open connection with the schema already created (see
+            :func:`storage.schema.init_db`).
+        workout_imports: This rerun's freshly imported and validated
+            workouts.
+
+    Returns:
+        Every workout ever saved, sorted by start_time.
+
+    Raises:
+        StorageError: If saving or loading fails.
+    """
+    for imported in workout_imports:
+        save_workout(conn, imported.workout)
+    return load_workouts(conn)
 
 
 def import_recovery_days(
