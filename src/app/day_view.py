@@ -35,6 +35,30 @@ from plots import (
 )
 
 
+def _format_optional(value: float | None, template: str) -> str:
+    """Format an optional measurement, distinguishing "0" from "not recorded".
+
+    A plain ``value or "–"`` ternary would misrepresent a genuine 0 reading
+    (e.g. 0 W while coasting — a real measurement, not a missing one, see
+    ``docs/entscheidungen.md``) as unknown. Checking ``is not None``
+    explicitly avoids that.
+
+    Args:
+        value: The value to format, or None if it wasn't recorded.
+        template: A ``str.format`` template with one placeholder for value,
+            e.g. ``"{:.0f} W"``.
+
+    Returns:
+        The formatted value, or "–" if value is None.
+
+    >>> _format_optional(0.0, "{:.0f} W")
+    '0 W'
+    >>> _format_optional(None, "{:.0f} W")
+    '–'
+    """
+    return template.format(value) if value is not None else "–"
+
+
 def _select_workout(workouts: tuple[Workout, ...]) -> Workout:
     """Let the user pick a workout when a day has more than one.
 
@@ -60,19 +84,14 @@ def _select_workout(workouts: tuple[Workout, ...]) -> Workout:
 def _render_metrics(workout: Workout) -> None:
     """Render the workout's key summary metrics as a row of tiles."""
     metrics = compute_workout_metrics(workout)
+    distance_km = metrics.distance_m / 1000 if metrics.distance_m is not None else None
     columns = st.columns(4)
     columns[0].metric("Dauer (bewegt)", str(metrics.moving_time))
     columns[1].metric(
-        "Ø Herzfrequenz",
-        f"{metrics.avg_heart_rate:.0f} bpm" if metrics.avg_heart_rate else "–",
+        "Ø Herzfrequenz", _format_optional(metrics.avg_heart_rate, "{:.0f} bpm")
     )
-    columns[2].metric(
-        "Ø Leistung", f"{metrics.avg_power:.0f} W" if metrics.avg_power else "–"
-    )
-    columns[3].metric(
-        "Distanz",
-        f"{metrics.distance_m / 1000:.1f} km" if metrics.distance_m else "–",
-    )
+    columns[2].metric("Ø Leistung", _format_optional(metrics.avg_power, "{:.0f} W"))
+    columns[3].metric("Distanz", _format_optional(distance_km, "{:.1f} km"))
 
 
 def _render_recovery(
@@ -86,13 +105,10 @@ def _render_recovery(
     st.subheader("Recovery")
     columns = st.columns(3)
     columns[0].metric(
-        "Recovery-Score",
-        f"{day.recovery_score} %" if day.recovery_score is not None else "–",
+        "Recovery-Score", _format_optional(day.recovery_score, "{:.0f} %")
     )
-    columns[1].metric(
-        "Ruhepuls", f"{day.resting_hr} bpm" if day.resting_hr is not None else "–"
-    )
-    columns[2].metric("HRV", f"{day.hrv_ms:.0f} ms" if day.hrv_ms is not None else "–")
+    columns[1].metric("Ruhepuls", _format_optional(day.resting_hr, "{:.0f} bpm"))
+    columns[2].metric("HRV", _format_optional(day.hrv_ms, "{:.0f} ms"))
 
 
 def _render_timeline(series: pl.DataFrame) -> None:
@@ -170,11 +186,7 @@ def _render_interval_summary(summary: IntervalSummary) -> None:
     columns[1].metric("Ø Gleichmäßigkeit", f"{summary.avg_evenness:.2f}")
     columns[2].metric(
         "Ø Pulsentwicklung",
-        (
-            f"{summary.avg_heart_rate_drift_bpm:+.1f} bpm"
-            if summary.avg_heart_rate_drift_bpm is not None
-            else "–"
-        ),
+        _format_optional(summary.avg_heart_rate_drift_bpm, "{:+.1f} bpm"),
     )
     columns[3].metric("Watt-Spanne", f"{summary.power_spread_w:.0f} W")
 
