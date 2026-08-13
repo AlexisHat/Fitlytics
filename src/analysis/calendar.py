@@ -4,7 +4,6 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date, timedelta
 from itertools import pairwise
-from statistics import quantiles
 
 import deal
 from pydantic import BaseModel, NonNegativeFloat
@@ -119,45 +118,38 @@ def build_calendar(
 
 
 @deal.pre(lambda _: _.value >= 0)
-@deal.post(lambda result: 0 <= result <= 4)
-def bucket_training_load(loads: Sequence[float], value: float) -> int:
-    """Classify a day's training load into one of 5 GitHub-graph-style buckets.
+@deal.post(lambda result: 0 <= result <= 100)
+def training_load_intensity_pct(loads: Sequence[float], value: float) -> int:
+    """Scale a day's training load to 0-100% relative to this calendar's hardest day.
 
-    Bucket 0 is reserved for rest days (``value == 0``). Buckets 1-4 split
-    the positive loads in ``loads`` into quartiles, so what counts as "hoch"
+    The hardest positive load in ``loads`` is 100%, a rest day is 0%, and
+    every day in between is placed linearly, so what counts as "hard"
     adapts to this session's own data instead of a fixed absolute TSS/TRIMP
     threshold that would mean nothing without a long training history to
     calibrate it against.
 
     Args:
         loads: Every day's training load in the calendar range being drawn,
-            including rest days (0.0); used only to derive the quartile
-            cut points, not to look up ``value`` itself.
-        value: The training load of the day being classified; must be
+            including rest days (0.0); used only to find the reference
+            maximum, not to look up ``value`` itself.
+        value: The training load of the day being scaled; must be
             non-negative.
 
     Returns:
-        0 for a rest day; otherwise 1 (lightest quarter of the positive
-        loads) to 4 (heaviest quarter). 4 if fewer than two positive loads
-        are available to split into quartiles, since a single effort is
-        trivially this calendar's heaviest.
+        0 for a rest day (``value == 0``); otherwise how hard ``value`` is
+        relative to the hardest positive load in ``loads``, as a percentage
+        from 1 to 100.
 
-    >>> loads = [0.0, 50.0, 100.0, 150.0, 200.0]
-    >>> bucket_training_load(loads, 0.0)
+    >>> loads = [0.0, 50.0, 100.0, 200.0]
+    >>> training_load_intensity_pct(loads, 0.0)
     0
-    >>> bucket_training_load(loads, 100.0)
-    2
-    >>> bucket_training_load(loads, 200.0)
-    4
+    >>> training_load_intensity_pct(loads, 100.0)
+    50
+    >>> training_load_intensity_pct(loads, 200.0)
+    100
     """
     if value <= 0:
         return 0
 
-    positive = sorted(load for load in loads if load > 0)
-    if len(positive) < 2:
-        return 4
-
-    for bucket, cut_point in enumerate(quantiles(positive, n=4), start=1):
-        if value <= cut_point:
-            return bucket
-    return 4
+    hardest = max((load for load in loads if load > 0), default=value)
+    return round(min(value, hardest) / hardest * 100)

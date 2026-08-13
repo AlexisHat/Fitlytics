@@ -180,7 +180,12 @@ def main() -> None:
         st.session_state.hr_rest,
         st.session_state.hr_max,
     )
-    render_calendar(calendar_days)
+    render_calendar(
+        calendar_days,
+        st.session_state.ftp_watts,
+        st.session_state.hr_rest,
+        st.session_state.hr_max,
+    )
     _render_selected_day(calendar_days)
 
 

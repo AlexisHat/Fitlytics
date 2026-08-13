@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from analysis.calendar import bucket_training_load, build_calendar
+from analysis.calendar import build_calendar, training_load_intensity_pct
 from analysis.load import training_load
 from models import RecordPoint, Workout
 
@@ -145,46 +145,46 @@ def test_build_calendar_rejects_a_non_positive_ftp() -> None:
         build_calendar([workout], ftp_watts=0, hr_rest=None, hr_max=None)
 
 
-def test_bucket_training_load_rest_day_is_bucket_zero() -> None:
-    assert bucket_training_load([0.0, 50.0, 100.0], 0.0) == 0
+def test_training_load_intensity_pct_rest_day_is_zero() -> None:
+    assert training_load_intensity_pct([0.0, 50.0, 100.0], 0.0) == 0
 
 
-def test_bucket_training_load_splits_into_quartiles() -> None:
+def test_training_load_intensity_pct_scales_linearly_to_the_hardest_day() -> None:
     loads = [0.0, 50.0, 100.0, 150.0, 200.0]
 
-    buckets = [bucket_training_load(loads, value) for value in loads]
+    percentages = [training_load_intensity_pct(loads, value) for value in loads]
 
-    assert buckets == [0, 1, 2, 3, 4]
-
-
-def test_bucket_training_load_single_effort_is_the_top_bucket() -> None:
-    """One positive load has nothing to split into quartiles against, so it
-    is trivially this calendar's heaviest day."""
-    assert bucket_training_load([0.0, 0.0, 42.0], 42.0) == 4
+    assert percentages == [0, 25, 50, 75, 100]
 
 
-def test_bucket_training_load_stays_within_bounds() -> None:
+def test_training_load_intensity_pct_single_effort_is_100_percent() -> None:
+    """One positive load has nothing to scale against but itself, so it is
+    trivially this calendar's heaviest day."""
+    assert training_load_intensity_pct([0.0, 0.0, 42.0], 42.0) == 100
+
+
+def test_training_load_intensity_pct_stays_within_bounds() -> None:
     loads = [0.0, 10.0, 500.0, 1000.0, 20.0, 30.0]
 
     for value in loads:
-        assert 0 <= bucket_training_load(loads, value) <= 4
+        assert 0 <= training_load_intensity_pct(loads, value) <= 100
 
 
-def test_bucket_training_load_rejects_a_negative_value() -> None:
+def test_training_load_intensity_pct_rejects_a_negative_value() -> None:
     with pytest.raises(deal.PreContractError):
-        bucket_training_load([0.0, 50.0], -1.0)
+        training_load_intensity_pct([0.0, 50.0], -1.0)
 
 
 @given(
     loads=st.lists(st.floats(min_value=0, max_value=1e6, allow_nan=False), min_size=1),
     value=st.floats(min_value=0, max_value=1e6, allow_nan=False),
 )
-def test_bucket_training_load_is_always_within_bounds(
+def test_training_load_intensity_pct_is_always_within_bounds(
     loads: list[float], value: float
 ) -> None:
-    assert 0 <= bucket_training_load(loads, value) <= 4
+    assert 0 <= training_load_intensity_pct(loads, value) <= 100
 
 
 @given(loads=st.lists(st.floats(min_value=0, max_value=1e6, allow_nan=False)))
-def test_bucket_training_load_zero_is_always_bucket_zero(loads: list[float]) -> None:
-    assert bucket_training_load(loads, 0.0) == 0
+def test_training_load_intensity_pct_zero_is_always_zero(loads: list[float]) -> None:
+    assert training_load_intensity_pct(loads, 0.0) == 0
