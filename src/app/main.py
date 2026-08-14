@@ -1,10 +1,10 @@
 """Streamlit entry point: sidebar data upload and session-wide settings.
 
-Run with ``uv run streamlit run src/app/main.py``. Uploaded workouts are
-saved to a local SQLite database (see ``storage``) and reloaded on every
-run, so they stay available without re-uploading in a later session.
-Recovery days and interval results are not persisted (see
-``docs/entscheidungen.md``, Meilenstein 10).
+Run with ``uv run streamlit run src/app/main.py``. Uploaded workouts and the
+FTP/heart-rate profile are saved to a local SQLite database (see
+``storage``) and reloaded on every run, so they stay available without
+re-entering them in a later session. Recovery days and interval results are
+not persisted (see ``docs/entscheidungen.md``, Meilenstein 10).
 """
 
 from pathlib import Path
@@ -24,20 +24,23 @@ from app.day_view import render_day
 from errors import StorageError
 from models import Workout
 from storage import init_db
+from storage.profile import load_profile, save_profile
 
 _DB_PATH: Final = Path("data/private/fitlytics.db")
 
 
-def _optional_sidebar_number(label: str) -> int | None:
+def _optional_sidebar_number(label: str, default: int | None = None) -> int | None:
     """Render a sidebar number input where 0 means "unknown", not a literal 0.
 
     Args:
         label: Field label shown to the user.
+        default: Value to pre-fill the field with (e.g. a previously saved
+            profile value), or None to start at "unknown".
 
     Returns:
         The entered value, or None if left at 0.
     """
-    value = st.sidebar.number_input(label, min_value=0, value=0, step=1)
+    value = st.sidebar.number_input(label, min_value=0, value=default or 0, step=1)
     return int(value) or None
 
 
@@ -94,6 +97,58 @@ def _load_persisted_workouts(workout_imports: list[WorkoutImport]) -> list[Worko
         return [imported.workout for imported in workout_imports]
 
 
+def _load_stored_profile() -> tuple[int | None, int | None, int | None]:
+    """Load the athlete's previously saved FTP/heart-rate profile, if any.
+
+    Falls back to nothing saved, with an error shown, if the database is
+    unavailable — matches :func:`_load_persisted_workouts`.
+
+    Returns:
+        ``(ftp_watts, hr_rest, hr_max)`` as last saved, or all None if
+        nothing was saved yet or the database is unavailable.
+    """
+    try:
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = init_db(_DB_PATH)
+        try:
+            return load_profile(conn)
+        finally:
+            conn.close()
+    except (StorageError, OSError) as exc:
+        st.error(f"Profil konnte nicht geladen werden: {exc}")
+        return None, None, None
+
+
+def _persist_profile(
+    ftp_watts: int | None, hr_rest: int | None, hr_max: int | None
+) -> None:
+    """Save the sidebar's current profile fields so they survive the session.
+
+    Saves exactly what was entered, even a momentarily invalid
+    hr_rest/hr_max combination — :func:`_validated_hr_profile` only decides
+    what this rerun's calculations may use, it must not cause a typo to
+    silently wipe an already-saved, valid profile. Falls back to a
+    session-only profile, with an error shown, if the database is
+    unavailable — matches :func:`_load_persisted_workouts`.
+
+    Args:
+        ftp_watts: The athlete's Functional Threshold Power, as entered.
+        hr_rest: The athlete's resting heart rate, as entered.
+        hr_max: The athlete's maximum heart rate, as entered.
+    """
+    try:
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = init_db(_DB_PATH)
+        try:
+            save_profile(conn, ftp_watts, hr_rest, hr_max)
+        finally:
+            conn.close()
+    except (StorageError, OSError) as exc:
+        st.error(
+            f"Profil konnte nicht gespeichert werden, gilt nur für diese Sitzung: {exc}"
+        )
+
+
 def _render_sidebar() -> None:
     """Render the sidebar's uploaders and settings, importing into session_state."""
     st.sidebar.header("Daten hochladen")
@@ -113,9 +168,13 @@ def _render_sidebar() -> None:
     st.session_state.recovery_failure = recovery_failure
 
     st.sidebar.header("Einstellungen")
-    st.session_state.ftp_watts = _optional_sidebar_number("FTP (Watt)")
-    hr_rest = _optional_sidebar_number("Ruhepuls (bpm)")
-    hr_max = _optional_sidebar_number("Maximalpuls (bpm)")
+    stored_ftp, stored_hr_rest, stored_hr_max = _load_stored_profile()
+    ftp_watts = _optional_sidebar_number("FTP (Watt)", stored_ftp)
+    hr_rest = _optional_sidebar_number("Ruhepuls (bpm)", stored_hr_rest)
+    hr_max = _optional_sidebar_number("Maximalpuls (bpm)", stored_hr_max)
+    _persist_profile(ftp_watts, hr_rest, hr_max)
+
+    st.session_state.ftp_watts = ftp_watts
     st.session_state.hr_rest, st.session_state.hr_max = _validated_hr_profile(
         hr_rest, hr_max
     )

@@ -16,10 +16,10 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
-def test_init_db_creates_both_tables() -> None:
+def test_init_db_creates_all_tables() -> None:
     conn = init_db(":memory:")
 
-    assert {"workouts", "records"}.issubset(_table_names(conn))
+    assert {"workouts", "records", "athlete_profile"}.issubset(_table_names(conn))
 
 
 def test_init_db_is_idempotent_and_keeps_existing_data(tmp_path: Path) -> None:

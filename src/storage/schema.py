@@ -1,9 +1,10 @@
 """SQLite schema and database initialization for local workout storage.
 
-Two tables, mirroring ``Workout``/``RecordPoint`` field for field: ``workouts``
-and, in a one-to-many relationship, their ``records``. Recovery days and
-interval results are deliberately not persisted here — see
-``docs/entscheidungen.md`` (Meilenstein 10).
+Three tables: ``workouts`` and, in a one-to-many relationship, their
+``records``, mirroring ``Workout``/``RecordPoint`` field for field; and
+``athlete_profile``, a single settings row for the FTP/heart-rate profile
+entered in the sidebar. Recovery days and interval results are deliberately
+not persisted here — see ``docs/entscheidungen.md`` (Meilenstein 10).
 """
 
 import sqlite3
@@ -50,6 +51,17 @@ CREATE TABLE IF NOT EXISTS records (
 )
 """
 
+_CREATE_ATHLETE_PROFILE_TABLE = """
+CREATE TABLE IF NOT EXISTS athlete_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    ftp_watts INTEGER,
+    hr_rest INTEGER,
+    hr_max INTEGER
+)
+"""
+"""``id`` is pinned to 1 by the CHECK constraint: this holds one athlete's
+current profile, not a history of edits to it."""
+
 
 @deal.raises(StorageError)
 def init_db(path: str | Path) -> sqlite3.Connection:
@@ -75,6 +87,7 @@ def init_db(path: str | Path) -> sqlite3.Connection:
         with conn:
             conn.execute(_CREATE_WORKOUTS_TABLE)
             conn.execute(_CREATE_RECORDS_TABLE)
+            conn.execute(_CREATE_ATHLETE_PROFILE_TABLE)
         return conn
     except (sqlite3.Error, OSError) as exc:
         raise StorageError(f"could not initialize database: {exc}") from exc
