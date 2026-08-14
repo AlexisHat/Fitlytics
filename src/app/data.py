@@ -89,14 +89,15 @@ def import_workouts(
 
 def save_and_load_workouts(
     conn: sqlite3.Connection, workout_imports: Sequence[WorkoutImport]
-) -> list[Workout]:
+) -> tuple[list[Workout], list[WorkoutImport]]:
     """Persist this rerun's newly imported workouts and return every saved one.
 
     Once a workout has been uploaded and saved, the database becomes the
     single source of truth for what the calendar shows: a workout stays
     visible without re-uploading it in a later session, and re-uploading
     the same file again is a no-op (``save_workout`` skips it by
-    start_time).
+    start_time) — reported back as a duplicate rather than silently
+    dropped, so the UI can tell the athlete nothing new happened.
 
     Args:
         conn: An open connection with the schema already created (see
@@ -105,14 +106,19 @@ def save_and_load_workouts(
             workouts.
 
     Returns:
-        Every workout ever saved, sorted by start_time.
+        Every workout ever saved, sorted by start_time; and the subset of
+        ``workout_imports`` that were already saved before this call (same
+        start_time) and so were skipped.
 
     Raises:
         StorageError: If saving or loading fails.
     """
-    for imported in workout_imports:
-        save_workout(conn, imported.workout)
-    return load_workouts(conn)
+    duplicates = [
+        imported
+        for imported in workout_imports
+        if not save_workout(conn, imported.workout)
+    ]
+    return load_workouts(conn), duplicates
 
 
 def import_recovery_days(

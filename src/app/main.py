@@ -71,7 +71,9 @@ def _validated_hr_profile(
     return hr_rest, hr_max
 
 
-def _load_persisted_workouts(workout_imports: list[WorkoutImport]) -> list[Workout]:
+def _load_persisted_workouts(
+    workout_imports: list[WorkoutImport],
+) -> tuple[list[Workout], list[WorkoutImport]]:
     """Save this rerun's new uploads to SQLite and return every saved workout.
 
     Falls back to just this rerun's uploads, with an error shown, if the
@@ -85,7 +87,9 @@ def _load_persisted_workouts(workout_imports: list[WorkoutImport]) -> list[Worko
 
     Returns:
         Every workout ever saved, or just this rerun's uploads if
-        persistence failed.
+        persistence failed; and the subset of ``workout_imports`` that were
+        already saved before (same start_time) and so were skipped as
+        duplicates.
     """
     try:
         _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +100,7 @@ def _load_persisted_workouts(workout_imports: list[WorkoutImport]) -> list[Worko
             conn.close()
     except (StorageError, OSError) as exc:
         st.error(f"Speicherung nicht verfügbar, gilt nur für diese Sitzung: {exc}")
-        return [imported.workout for imported in workout_imports]
+        return [imported.workout for imported in workout_imports], []
 
 
 def _load_stored_profile() -> tuple[int | None, int | None, int | None]:
@@ -185,8 +189,10 @@ def _render_sidebar() -> None:
     workout_imports, workout_failures = import_workouts(fit_files or [], workout_names)
     recovery_days, recovery_report, recovery_failure = import_recovery_days(csv_file)
 
-    st.session_state.workouts = _load_persisted_workouts(workout_imports)
+    workouts, duplicate_workout_imports = _load_persisted_workouts(workout_imports)
+    st.session_state.workouts = workouts
     st.session_state.workout_imports = workout_imports
+    st.session_state.duplicate_workout_imports = duplicate_workout_imports
     st.session_state.workout_failures = workout_failures
     st.session_state.recovery_days = recovery_days
     st.session_state.recovery_report = recovery_report
@@ -209,6 +215,12 @@ def _render_import_log() -> None:
     """Show import failures and a summary of what was successfully imported."""
     for failure in st.session_state.workout_failures:
         st.error(f"{failure.filename}: {failure.message}")
+    for duplicate in st.session_state.duplicate_workout_imports:
+        start_date = duplicate.workout.start_time.date().isoformat()
+        st.warning(
+            f"{duplicate.filename}: Workout vom {start_date} ist bereits "
+            "gespeichert — übersprungen."
+        )
     if st.session_state.recovery_failure is not None:
         failure = st.session_state.recovery_failure
         st.error(f"{failure.filename}: {failure.message}")

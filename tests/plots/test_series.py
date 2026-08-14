@@ -84,6 +84,17 @@ def test_build_time_series_altitude_relative_uses_first_non_null_as_baseline() -
     assert series["altitude_relative_m"].to_list() == pytest.approx([None, 0.0, 5.0])
 
 
+def test_build_time_series_handles_a_value_past_row_100() -> None:
+    """Polars' default schema inference only samples the first 100 rows of a
+    list-of-dicts; a column that is None throughout that sample and only
+    becomes a real float later used to crash the whole DataFrame build."""
+    records = [_point(i) for i in range(120)] + [_point(120, grade_pct=41.4)]
+
+    series = build_time_series(records)
+
+    assert series["grade_pct"].to_list()[-1] == pytest.approx(41.4)
+
+
 def test_build_time_series_rejects_empty_records() -> None:
     with pytest.raises(deal.PreContractError):
         build_time_series([])

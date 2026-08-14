@@ -67,7 +67,14 @@ def build_time_series(records: list[RecordPoint]) -> pl.DataFrame:
     >>> series["power"].to_list()
     [100, 200]
     """
-    series = pl.DataFrame([record.model_dump() for record in records])
+    # infer_schema_length=None scans every row instead of just the first 100
+    # (polars' default) before picking each column's dtype — otherwise a
+    # column that is None in the first 100 records but a real float later
+    # (e.g. grade_pct before the first gradient reading) crashes with
+    # "could not append value ... to the builder" on a long enough ride.
+    series = pl.DataFrame(
+        [record.model_dump() for record in records], infer_schema_length=None
+    )
     series = series.with_columns(
         (pl.col("timestamp") - pl.col("timestamp").first())
         .dt.total_milliseconds()
