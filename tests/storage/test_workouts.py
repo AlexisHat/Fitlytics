@@ -13,9 +13,14 @@ from storage.workouts import load_workouts, save_workout
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
 
 
-def _workout(start_time: datetime = START, ftp_watts: int | None = 210) -> Workout:
+def _workout(
+    start_time: datetime = START,
+    ftp_watts: int | None = 210,
+    name: str | None = None,
+) -> Workout:
     return Workout(
         start_time=start_time,
+        name=name,
         sport="cycling",
         sub_sport="generic",
         ftp_watts=ftp_watts,
@@ -89,6 +94,23 @@ def test_load_workouts_handles_none_fields(conn: sqlite3.Connection) -> None:
     loaded = load_workouts(conn)[0]
 
     assert loaded.ftp_watts is None
+
+
+def test_load_workouts_roundtrips_a_given_name(conn: sqlite3.Connection) -> None:
+    workout = _workout(name="Feierabendrunde")
+    save_workout(conn, workout)
+
+    loaded = load_workouts(conn)[0]
+
+    assert loaded.name == "Feierabendrunde"
+
+
+def test_load_workouts_roundtrips_no_name_as_none(conn: sqlite3.Connection) -> None:
+    save_workout(conn, _workout())
+
+    loaded = load_workouts(conn)[0]
+
+    assert loaded.name is None
 
 
 def test_load_workouts_returns_empty_list_for_an_empty_database(

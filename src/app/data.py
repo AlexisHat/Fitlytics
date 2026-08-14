@@ -52,6 +52,7 @@ class WorkoutImport(NamedTuple):
 
 def import_workouts(
     files: Sequence[UploadSource],
+    names: Sequence[str | None] | None = None,
 ) -> tuple[list[WorkoutImport], list[ImportFailure]]:
     """Import and validate every uploaded FIT file, skipping unusable ones.
 
@@ -62,19 +63,26 @@ def import_workouts(
     Args:
         files: Uploaded FIT files, e.g. from
             ``st.file_uploader(accept_multiple_files=True)``.
+        names: An optional title for each file, in the same order as
+            ``files``; a None entry leaves the workout's own name unset, so
+            it falls back to :attr:`models.Workout.display_name`. Defaults
+            to no title for any file.
 
     Returns:
         The successfully imported workouts and the failures, both in the
         order ``files`` was given.
     """
+    resolved_names = names if names is not None else [None] * len(files)
     imports: list[WorkoutImport] = []
     failures: list[ImportFailure] = []
-    for file in files:
+    for file, name in zip(files, resolved_names, strict=True):
         try:
             workout, report = validate_workout(import_fit_file(file))
         except (FileImportError, DataValidationError) as exc:
             failures.append(ImportFailure(file.name, str(exc)))
             continue
+        if name is not None:
+            workout = workout.model_copy(update={"name": name})
         imports.append(WorkoutImport(file.name, workout, report))
     return imports, failures
 

@@ -53,6 +53,9 @@ class Workout(BaseModel):
 
     Attributes:
         start_time: Start of the session, UTC.
+        name: The athlete's own title for the session, if given at upload
+            time; None falls back to :attr:`display_name`, not to a
+            fabricated title.
         sport: Sport as reported by the device (e.g. "cycling").
         sub_sport: More specific sport classification, if available.
         ftp_watts: Functional Threshold Power configured on the device at
@@ -71,6 +74,7 @@ class Workout(BaseModel):
     """
 
     start_time: UtcDatetime
+    name: str | None = None
     sport: str = Field(min_length=1)
     sub_sport: str | None = None
     ftp_watts: PositiveInt | None = None
@@ -108,3 +112,27 @@ class Workout(BaseModel):
             if record.latitude is not None and record.longitude is not None
         )
         return gps_fixes >= 2
+
+    @property
+    def display_name(self) -> str:
+        """The workout's title: ``name`` if given, else "Training am <date>".
+
+        Returns:
+            ``name``, or a generated title from the UTC start date if none
+            was given at upload time.
+
+        >>> from datetime import UTC, datetime
+        >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+        >>> records = [RecordPoint(timestamp=start, power=200)]
+        >>> Workout(start_time=start, sport="cycling", records=records).display_name
+        'Training am 2026-07-16'
+        >>> named = Workout(
+        ...     start_time=start,
+        ...     sport="cycling",
+        ...     name="Feierabendrunde",
+        ...     records=records,
+        ... )
+        >>> named.display_name
+        'Feierabendrunde'
+        """
+        return self.name or f"Training am {self.start_time.date().isoformat()}"

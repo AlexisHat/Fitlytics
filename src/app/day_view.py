@@ -75,7 +75,7 @@ def _select_workout(workouts: tuple[Workout, ...]) -> Workout:
         return workouts[0]
 
     labels = [
-        f"{workout.start_time.strftime('%H:%M')} — {workout.sport}"
+        f"{workout.start_time.strftime('%H:%M')} — {workout.display_name}"
         for workout in workouts
     ]
     choice = st.selectbox(
@@ -324,13 +324,14 @@ def render_day(
         hr_rest: The athlete's resting heart rate, or None if unknown.
         hr_max: The athlete's maximum heart rate, or None if unknown.
     """
-    st.subheader(day.date.isoformat())
     if not day.workouts:
+        st.subheader(day.date.isoformat())
         st.write("Ruhetag.")
         _render_recovery(day.date, recovery_days)
         return
 
     workout = _select_workout(day.workouts)
+    st.subheader(f"{workout.display_name} — {day.date.isoformat()}")
     _render_metrics(workout)
     _render_recovery(day.date, recovery_days)
 

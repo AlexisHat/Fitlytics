@@ -170,6 +170,27 @@ def test_workout_has_no_gps_track_without_any_fix() -> None:
     assert workout.has_gps_track is False
 
 
+def test_workout_display_name_falls_back_to_the_date_without_a_name() -> None:
+    workout = Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        records=[RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))],
+    )
+
+    assert workout.display_name == "Training am 2026-07-16"
+
+
+def test_workout_display_name_uses_the_given_name() -> None:
+    workout = Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        name="Feierabendrunde",
+        records=[RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))],
+    )
+
+    assert workout.display_name == "Feierabendrunde"
+
+
 def test_workout_rejects_negative_total_ascent() -> None:
     with pytest.raises(PydanticValidationError):
         Workout(

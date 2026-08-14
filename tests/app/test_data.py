@@ -49,6 +49,27 @@ def test_import_workouts_handles_empty_selection() -> None:
     assert import_workouts([]) == ([], [])
 
 
+def test_import_workouts_leaves_name_unset_without_one_given() -> None:
+    imports, _ = import_workouts([VALID_FIT])
+
+    assert imports[0].workout.name is None
+
+
+def test_import_workouts_applies_a_given_name() -> None:
+    imports, _ = import_workouts([VALID_FIT], ["Feierabendrunde"])
+
+    assert imports[0].workout.name == "Feierabendrunde"
+
+
+def test_import_workouts_matches_names_to_files_by_position() -> None:
+    imports, _ = import_workouts(
+        [VALID_FIT, BROKEN_FIT], ["Meine Runde", "Kaputte Datei"]
+    )
+
+    assert len(imports) == 1
+    assert imports[0].workout.name == "Meine Runde"
+
+
 def test_import_recovery_days_returns_nothing_without_a_file() -> None:
     assert import_recovery_days(None) == ([], None, None)
 

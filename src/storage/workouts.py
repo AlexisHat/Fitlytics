@@ -12,10 +12,10 @@ _SELECT_WORKOUT_ID_BY_START_TIME = "SELECT id FROM workouts WHERE start_time = ?
 
 _INSERT_WORKOUT = """
 INSERT INTO workouts (
-    start_time, sport, sub_sport, ftp_watts, total_ascent_m, total_descent_m,
+    start_time, name, sport, sub_sport, ftp_watts, total_ascent_m, total_descent_m,
     avg_grade_pct, total_work_j, device_normalized_power,
     device_intensity_factor, device_training_stress_score
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_RECORD = """
@@ -26,7 +26,7 @@ INSERT INTO records (
 """
 
 _SELECT_ALL_WORKOUTS = """
-SELECT id, start_time, sport, sub_sport, ftp_watts, total_ascent_m,
+SELECT id, start_time, name, sport, sub_sport, ftp_watts, total_ascent_m,
        total_descent_m, avg_grade_pct, total_work_j, device_normalized_power,
        device_intensity_factor, device_training_stress_score
 FROM workouts
@@ -81,6 +81,7 @@ def _workout_row(workout: Workout) -> tuple[object, ...]:
     """The column values for one INSERT INTO workouts, in table order."""
     return (
         workout.start_time.isoformat(),
+        workout.name,
         workout.sport,
         workout.sub_sport,
         workout.ftp_watts,
@@ -129,6 +130,7 @@ def _record_from_row(row: sqlite3.Row) -> RecordPoint:
 def _workout_from_row(row: sqlite3.Row, records: list[RecordPoint]) -> Workout:
     return Workout(
         start_time=row["start_time"],
+        name=row["name"],
         sport=row["sport"],
         sub_sport=row["sub_sport"],
         ftp_watts=row["ftp_watts"],

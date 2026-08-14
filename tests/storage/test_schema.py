@@ -45,3 +45,33 @@ def test_init_db_rejects_an_unopenable_path(tmp_path: Path) -> None:
 
     with pytest.raises(StorageError):
         init_db(unwritable_path)
+
+
+def test_init_db_migrates_a_workouts_table_from_before_names_existed(
+    tmp_path: Path,
+) -> None:
+    """A database from before workout titles existed has no ``name`` column
+    yet — CREATE TABLE IF NOT EXISTS alone would never add it."""
+    db_path = tmp_path / "fitlytics.db"
+
+    pre_existing = sqlite3.connect(db_path)
+    pre_existing.execute(
+        """
+        CREATE TABLE workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time TEXT NOT NULL UNIQUE,
+            sport TEXT NOT NULL
+        )
+        """
+    )
+    pre_existing.execute(
+        "INSERT INTO workouts (start_time, sport) VALUES (?, ?)",
+        ("2026-07-16T14:00:00+00:00", "cycling"),
+    )
+    pre_existing.commit()
+    pre_existing.close()
+
+    migrated = init_db(db_path)
+    rows = migrated.execute("SELECT sport, name FROM workouts").fetchall()
+
+    assert [(row["sport"], row["name"]) for row in rows] == [("cycling", None)]

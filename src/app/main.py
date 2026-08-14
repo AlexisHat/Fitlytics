@@ -7,10 +7,12 @@ re-entering them in a later session. Recovery days and interval results are
 not persisted (see ``docs/entscheidungen.md``, Meilenstein 10).
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
 import streamlit as st
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from analysis.calendar import CalendarDay
 from app.calendar_view import render_calendar
@@ -149,15 +151,38 @@ def _persist_profile(
         )
 
 
+def _render_workout_name_inputs(files: Sequence[UploadedFile]) -> list[str | None]:
+    """Render an optional title field for each newly uploaded FIT file.
+
+    Args:
+        files: This rerun's uploaded FIT files, in upload order.
+
+    Returns:
+        One optional, trimmed title per file, in the same order as
+        ``files``; None where left blank, so :func:`app.data.import_workouts`
+        leaves the workout to fall back to its generated title.
+    """
+    names: list[str | None] = []
+    for file in files:
+        entered = st.sidebar.text_input(
+            f"Titel für {file.name}",
+            key=f"workout_name_{file.file_id}",
+            placeholder="optional, sonst „Training am <Datum>“",
+        )
+        names.append(entered.strip() or None)
+    return names
+
+
 def _render_sidebar() -> None:
     """Render the sidebar's uploaders and settings, importing into session_state."""
     st.sidebar.header("Daten hochladen")
     fit_files = st.sidebar.file_uploader(
         "FIT-Dateien (Trainings)", type="fit", accept_multiple_files=True
     )
+    workout_names = _render_workout_name_inputs(fit_files or [])
     csv_file = st.sidebar.file_uploader("Whoop-CSV (Recovery)", type="csv")
 
-    workout_imports, workout_failures = import_workouts(fit_files or [])
+    workout_imports, workout_failures = import_workouts(fit_files or [], workout_names)
     recovery_days, recovery_report, recovery_failure = import_recovery_days(csv_file)
 
     st.session_state.workouts = _load_persisted_workouts(workout_imports)
