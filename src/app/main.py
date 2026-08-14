@@ -12,7 +12,7 @@ from typing import Final
 
 import streamlit as st
 
-from analysis.calendar import CalendarDay, build_calendar
+from analysis.calendar import CalendarDay
 from app.calendar_view import render_calendar
 from app.data import (
     WorkoutImport,
@@ -233,14 +233,8 @@ def main() -> None:
     _render_sidebar()
     _render_import_log()
 
-    calendar_days = build_calendar(
+    calendar_days = render_calendar(
         st.session_state.workouts,
-        st.session_state.ftp_watts,
-        st.session_state.hr_rest,
-        st.session_state.hr_max,
-    )
-    render_calendar(
-        calendar_days,
         st.session_state.ftp_watts,
         st.session_state.hr_rest,
         st.session_state.hr_max,

@@ -28,23 +28,31 @@ def _heart_rate_workout(start_time: datetime, heart_rate: int = 140) -> Workout:
     )
 
 
-def test_build_calendar_returns_empty_for_no_workouts() -> None:
-    assert build_calendar([], ftp_watts=None, hr_rest=50, hr_max=190) == ()
+def test_build_calendar_returns_a_full_month_of_rest_days_for_no_workouts() -> None:
+    calendar = build_calendar([], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190)
+
+    assert len(calendar) == 31
+    assert all(day.training_load == 0.0 and day.workouts == () for day in calendar)
+    assert calendar[0].date == date(2026, 7, 1)
+    assert calendar[-1].date == date(2026, 7, 31)
 
 
-def test_build_calendar_covers_the_full_range_including_rest_days() -> None:
-    day_one = _heart_rate_workout(datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC))
-    day_three = _heart_rate_workout(datetime(2026, 7, 18, 9, 0, 0, tzinfo=UTC))
-
-    calendar = build_calendar(
-        [day_one, day_three], ftp_watts=None, hr_rest=50, hr_max=190
-    )
+def test_build_calendar_covers_every_day_of_a_shorter_month() -> None:
+    calendar = build_calendar([], 2026, 2, ftp_watts=None, hr_rest=50, hr_max=190)
 
     assert [day.date for day in calendar] == [
-        date(2026, 7, 16),
-        date(2026, 7, 17),
-        date(2026, 7, 18),
+        date(2026, 2, 1) + timedelta(days=offset) for offset in range(28)
     ]
+
+
+def test_build_calendar_ignores_workouts_outside_the_month() -> None:
+    other_month = _heart_rate_workout(datetime(2026, 8, 1, 8, 0, 0, tzinfo=UTC))
+
+    calendar = build_calendar(
+        [other_month], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
+    )
+
+    assert all(day.workouts == () for day in calendar)
 
 
 def test_build_calendar_rest_day_has_zero_load_and_no_workouts() -> None:
@@ -52,10 +60,10 @@ def test_build_calendar_rest_day_has_zero_load_and_no_workouts() -> None:
     day_three = _heart_rate_workout(datetime(2026, 7, 18, 9, 0, 0, tzinfo=UTC))
 
     calendar = build_calendar(
-        [day_one, day_three], ftp_watts=None, hr_rest=50, hr_max=190
+        [day_one, day_three], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
     )
 
-    rest_day = calendar[1]
+    rest_day = calendar[16]
     assert rest_day.date == date(2026, 7, 17)
     assert rest_day.training_load == 0.0
     assert rest_day.workouts == ()
@@ -64,9 +72,11 @@ def test_build_calendar_rest_day_has_zero_load_and_no_workouts() -> None:
 def test_build_calendar_keeps_the_days_workouts_for_click_through() -> None:
     workout = _heart_rate_workout(datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC))
 
-    calendar = build_calendar([workout], ftp_watts=None, hr_rest=50, hr_max=190)
+    calendar = build_calendar(
+        [workout], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
+    )
 
-    assert calendar[0].workouts == (workout,)
+    assert calendar[15].workouts == (workout,)
 
 
 def test_build_calendar_sums_multiple_workouts_on_the_same_day() -> None:
@@ -74,15 +84,19 @@ def test_build_calendar_sums_multiple_workouts_on_the_same_day() -> None:
     evening = _heart_rate_workout(datetime(2026, 7, 16, 18, 0, 0, tzinfo=UTC))
 
     combined = build_calendar(
-        [morning, evening], ftp_watts=None, hr_rest=50, hr_max=190
+        [morning, evening], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
     )
-    morning_only = build_calendar([morning], ftp_watts=None, hr_rest=50, hr_max=190)
-    evening_only = build_calendar([evening], ftp_watts=None, hr_rest=50, hr_max=190)
+    morning_only = build_calendar(
+        [morning], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
+    )
+    evening_only = build_calendar(
+        [evening], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
+    )
 
-    assert combined[0].training_load == pytest.approx(
-        morning_only[0].training_load + evening_only[0].training_load
+    assert combined[15].training_load == pytest.approx(
+        morning_only[15].training_load + evening_only[15].training_load
     )
-    assert len(combined[0].workouts) == 2
+    assert len(combined[15].workouts) == 2
 
 
 def test_build_calendar_uses_the_utc_date_of_start_time() -> None:
@@ -94,10 +108,10 @@ def test_build_calendar_uses_the_utc_date_of_start_time() -> None:
     )
 
     calendar = build_calendar(
-        [just_after_midnight], ftp_watts=None, hr_rest=50, hr_max=190
+        [just_after_midnight], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
     )
 
-    assert calendar[0].date == date(2026, 7, 17)
+    assert calendar[16].workouts == (just_after_midnight,)
 
 
 def test_build_calendar_zero_load_when_nothing_is_computable() -> None:
@@ -111,9 +125,11 @@ def test_build_calendar_zero_load_when_nothing_is_computable() -> None:
     ]
     workout = _workout(datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC), records)
 
-    calendar = build_calendar([workout], ftp_watts=None, hr_rest=None, hr_max=None)
+    calendar = build_calendar(
+        [workout], 2026, 7, ftp_watts=None, hr_rest=None, hr_max=None
+    )
 
-    assert calendar[0].training_load == 0.0
+    assert calendar[15].training_load == 0.0
 
 
 def test_build_calendar_clamps_a_negative_trimp_to_zero() -> None:
@@ -126,23 +142,30 @@ def test_build_calendar_clamps_a_negative_trimp_to_zero() -> None:
     assert load is not None
     assert load < 0
 
-    calendar = build_calendar([workout], ftp_watts=None, hr_rest=50, hr_max=190)
+    calendar = build_calendar(
+        [workout], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
+    )
 
-    assert calendar[0].training_load == 0.0
+    assert calendar[15].training_load == 0.0
 
 
 def test_build_calendar_rejects_hr_rest_not_below_hr_max() -> None:
     workout = _heart_rate_workout(datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC))
 
     with pytest.raises(deal.PreContractError):
-        build_calendar([workout], ftp_watts=None, hr_rest=190, hr_max=190)
+        build_calendar([workout], 2026, 7, ftp_watts=None, hr_rest=190, hr_max=190)
 
 
 def test_build_calendar_rejects_a_non_positive_ftp() -> None:
     workout = _heart_rate_workout(datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC))
 
     with pytest.raises(deal.PreContractError):
-        build_calendar([workout], ftp_watts=0, hr_rest=None, hr_max=None)
+        build_calendar([workout], 2026, 7, ftp_watts=0, hr_rest=None, hr_max=None)
+
+
+def test_build_calendar_rejects_an_out_of_range_month() -> None:
+    with pytest.raises(deal.PreContractError):
+        build_calendar([], 2026, 13, ftp_watts=None, hr_rest=None, hr_max=None)
 
 
 def test_training_load_intensity_pct_rest_day_is_zero() -> None:

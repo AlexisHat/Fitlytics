@@ -1,9 +1,9 @@
 """Per-day aggregation of workouts for a Github-style calendar view."""
 
+from calendar import monthrange
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import date, timedelta
-from itertools import pairwise
+from datetime import date
 
 import deal
 from pydantic import BaseModel, NonNegativeFloat
@@ -32,29 +32,30 @@ class CalendarDay(BaseModel):
     workouts: tuple[Workout, ...]
 
 
+@deal.pre(lambda _: 1 <= _.month <= 12)
 @deal.pre(lambda _: _.ftp_watts is None or _.ftp_watts > 0)
 @deal.pre(lambda _: _.hr_rest is None or _.hr_max is None or _.hr_rest < _.hr_max)
-@deal.ensure(
-    lambda _: (
-        _.result == ()
-        or all(b.date - a.date == timedelta(days=1) for a, b in pairwise(_.result))
-    )
-)
+@deal.ensure(lambda _: len(_.result) == monthrange(_.year, _.month)[1])
 def build_calendar(
     workouts: Sequence[Workout],
+    year: int,
+    month: int,
     ftp_watts: int | None,
     hr_rest: int | None,
     hr_max: int | None,
 ) -> tuple[CalendarDay, ...]:
-    """Aggregate workouts into one calendar day per day in their date range.
+    """Aggregate one calendar month's workouts into one CalendarDay per day.
 
     A day with no workout (never mind whether the athlete recovered that
     day — recovery isn't part of this view) is a real, expected rest day,
     not missing data, so it appears with ``training_load=0.0`` rather than
-    being left out of the range.
+    being left out of the month.
 
     Args:
-        workouts: The workouts to aggregate; may be empty.
+        workouts: The workouts to aggregate; those outside ``year``/``month``
+            are ignored.
+        year: The calendar year to build.
+        month: The calendar month to build, 1-12.
         ftp_watts: The athlete's Functional Threshold Power, or None if
             unknown; must be positive if given.
         hr_rest: The athlete's resting heart rate, or None if unknown; must
@@ -62,13 +63,12 @@ def build_calendar(
         hr_max: The athlete's maximum heart rate, or None if unknown.
 
     Returns:
-        One CalendarDay per calendar day from the earliest to the latest
-        workout's UTC start date, inclusive and without gaps. Empty if
-        ``workouts`` is empty.
+        One CalendarDay per day of ``year``-``month``, from the 1st to the
+        last, inclusive, whether or not it has a workout.
 
     >>> from datetime import UTC, datetime
     >>> from models import RecordPoint
-    >>> day_one = Workout(
+    >>> workout = Workout(
     ...     start_time=datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC),
     ...     sport="cycling",
     ...     records=[
@@ -78,28 +78,25 @@ def build_calendar(
     ...         )
     ...     ],
     ... )
-    >>> day_three = day_one.model_copy(
-    ...     update={"start_time": datetime(2026, 7, 18, 9, 0, 0, tzinfo=UTC)}
-    ... )
     >>> calendar = build_calendar(
-    ...     [day_one, day_three], ftp_watts=None, hr_rest=50, hr_max=190
+    ...     [workout], 2026, 7, ftp_watts=None, hr_rest=50, hr_max=190
     ... )
-    >>> [(day.date.isoformat(), len(day.workouts)) for day in calendar]
-    [('2026-07-16', 1), ('2026-07-17', 0), ('2026-07-18', 1)]
+    >>> len(calendar)
+    31
+    >>> calendar[15].date.isoformat(), len(calendar[15].workouts)
+    ('2026-07-16', 1)
     """
-    if not workouts:
-        return ()
-
     by_day: dict[date, list[Workout]] = defaultdict(list)
     for workout in workouts:
-        by_day[workout.start_time.date()].append(workout)
+        workout_date = workout.start_time.date()
+        if workout_date.year == year and workout_date.month == month:
+            by_day[workout_date].append(workout)
 
-    first_day = min(by_day)
-    last_day = max(by_day)
+    _, days_in_month = monthrange(year, month)
 
     days: list[CalendarDay] = []
-    current = first_day
-    while current <= last_day:
+    for day_of_month in range(1, days_in_month + 1):
+        current = date(year, month, day_of_month)
         day_workouts = tuple(by_day.get(current, ()))
         loads = (
             training_load(workout, ftp_watts, hr_rest, hr_max)
@@ -113,7 +110,6 @@ def build_calendar(
                 workouts=day_workouts,
             )
         )
-        current += timedelta(days=1)
     return tuple(days)
 
 

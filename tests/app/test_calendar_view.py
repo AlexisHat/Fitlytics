@@ -1,21 +1,32 @@
 """Tests for app.calendar_view's pure grid-layout and intensity-colour helpers."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from analysis.calendar import CalendarDay
 from app.calendar_view import (
     _DARK_TEXT_THRESHOLD_PCT,
+    _default_month,
     _grid_weeks,
     _intensity_color,
     _intensity_label,
     _profile_missing,
     _readable_text_color,
+    _shift_month,
     _week_start,
 )
+from models import RecordPoint, Workout
 
 
 def _day(day: date) -> CalendarDay:
     return CalendarDay(date=day, training_load=0.0, workouts=())
+
+
+def _workout(start_time: datetime) -> Workout:
+    return Workout(
+        start_time=start_time,
+        sport="cycling",
+        records=[RecordPoint(timestamp=start_time, power=200)],
+    )
 
 
 def test_week_start_returns_the_same_monday_for_any_day_in_that_week() -> None:
@@ -91,3 +102,26 @@ def test_profile_not_missing_with_ftp_alone() -> None:
 
 def test_profile_not_missing_with_a_full_hr_profile() -> None:
     assert _profile_missing(None, 50, 190) is False
+
+
+def test_shift_month_forward_crosses_into_the_next_year() -> None:
+    assert _shift_month(date(2026, 12, 1), 1) == date(2027, 1, 1)
+
+
+def test_shift_month_backward_crosses_into_the_previous_year() -> None:
+    assert _shift_month(date(2026, 1, 1), -1) == date(2025, 12, 1)
+
+
+def test_shift_month_ignores_the_reference_days_day_of_month() -> None:
+    assert _shift_month(date(2026, 7, 16), 1) == date(2026, 8, 1)
+
+
+def test_shift_month_by_zero_stays_on_the_same_month() -> None:
+    assert _shift_month(date(2026, 7, 16), 0) == date(2026, 7, 1)
+
+
+def test_default_month_is_the_latest_workouts_month() -> None:
+    earlier = _workout(datetime(2026, 5, 1, tzinfo=UTC))
+    latest = _workout(datetime(2026, 7, 16, tzinfo=UTC))
+
+    assert _default_month([earlier, latest]) == date(2026, 7, 1)
