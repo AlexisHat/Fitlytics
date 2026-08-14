@@ -269,8 +269,12 @@ def _render_workout_upload_details(
 def _render_sidebar() -> None:
     """Render the sidebar's uploaders and settings, importing into session_state."""
     st.sidebar.header("Daten hochladen")
+    uploader_version = st.session_state.get("fit_uploader_version", 0)
     fit_files = st.sidebar.file_uploader(
-        "FIT-Dateien (Trainings)", type="fit", accept_multiple_files=True
+        "FIT-Dateien (Trainings)",
+        type="fit",
+        accept_multiple_files=True,
+        key=f"fit_uploader_{uploader_version}",
     )
     workout_upload_details = _render_workout_upload_details(fit_files or [])
     csv_file = st.sidebar.file_uploader("Whoop-CSV (Recovery)", type="csv")
@@ -278,7 +282,7 @@ def _render_sidebar() -> None:
     workout_imports, workout_failures = import_workouts(
         fit_files or [], workout_upload_details
     )
-    recovery_days, recovery_report, recovery_failure = import_recovery_days(csv_file)
+    recovery_days, _, recovery_failure = import_recovery_days(csv_file)
 
     workouts = _load_stored_workouts()
     duplicate_workout_imports: list[WorkoutImport] = []
@@ -288,13 +292,18 @@ def _render_sidebar() -> None:
         )
         if save_clicked:
             workouts, duplicate_workout_imports = _save_workouts(workout_imports)
+            if not duplicate_workout_imports:
+                # A clean save: reset the uploader (new widget key) so the
+                # sidebar is immediately ready for the next upload instead
+                # of still showing the just-saved file.
+                st.session_state.fit_uploader_version = uploader_version + 1
+                st.rerun()
 
     st.session_state.workouts = workouts
     st.session_state.workout_imports = workout_imports
     st.session_state.duplicate_workout_imports = duplicate_workout_imports
     st.session_state.workout_failures = workout_failures
     st.session_state.recovery_days = recovery_days
-    st.session_state.recovery_report = recovery_report
     st.session_state.recovery_failure = recovery_failure
 
     st.sidebar.header("Einstellungen")
@@ -343,11 +352,6 @@ def _render_import_log() -> None:
         f"{len(st.session_state.workouts)} Workout(s), "
         f"{len(st.session_state.recovery_days)} Recovery-Tag(e) importiert."
     )
-    with st.expander("Import-Details"):
-        for imported in st.session_state.workout_imports:
-            st.write(f"**{imported.filename}** — {imported.report.summary()}")
-        if st.session_state.recovery_report is not None:
-            st.write(f"**Whoop-CSV** — {st.session_state.recovery_report.summary()}")
 
 
 def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
