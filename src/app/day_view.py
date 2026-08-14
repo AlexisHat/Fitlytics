@@ -5,8 +5,10 @@ from itertools import pairwise
 
 import polars as pl
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 
 from analysis.calendar import CalendarDay
+from analysis.constants import DEFAULT_POWER_ZONE_MODEL, PowerZoneModel
 from analysis.heart_rate_zones import heart_rate_zone_distribution
 from analysis.power_zones import power_zone_distribution
 from analysis.workout import compute_workout_metrics
@@ -25,6 +27,7 @@ from intervals import (
 from models import RecordPoint, RecoveryDay, Workout
 from plots import (
     METRICS,
+    POWER_ZONE_MODEL_LABELS,
     available_metrics,
     build_gps_map_figure,
     build_time_series,
@@ -121,24 +124,74 @@ def _render_timeline(series: pl.DataFrame) -> None:
     st.plotly_chart(figure, width="stretch")
 
 
+def _has_power_zone_data(records: list[RecordPoint], ftp_watts: int | None) -> bool:
+    """Whether a power-zone chart can be drawn, independent of the chosen model.
+
+    Mirrors the guard inside
+    :func:`analysis.power_zones.power_zone_distribution` (FTP known, at
+    least two power samples) — the model only changes how those samples are
+    bucketed, never whether there is anything to bucket.
+
+    Args:
+        records: The workout's record points.
+        ftp_watts: The athlete's FTP, or None if unknown.
+
+    Returns:
+        True if a power-zone chart can be drawn for this workout.
+    """
+    if ftp_watts is None:
+        return False
+    return sum(1 for record in records if record.power is not None) >= 2
+
+
+def _render_power_zone_plot(
+    container: DeltaGenerator, records: list[RecordPoint], ftp_watts: int | None
+) -> None:
+    """Render the power-zone model picker and the resulting bar chart.
+
+    Assumes :func:`_has_power_zone_data` already confirmed a chart can be
+    drawn; still guards the widget's return itself, since Streamlit's
+    ``selectbox`` is typed as possibly returning None.
+    """
+    models = list(PowerZoneModel)
+    zone_model = container.selectbox(
+        "Leistungszonen-Modell",
+        options=models,
+        format_func=lambda model: POWER_ZONE_MODEL_LABELS[model],
+        index=models.index(DEFAULT_POWER_ZONE_MODEL),
+    )
+    if zone_model is None:
+        return
+    distribution = power_zone_distribution(records, ftp_watts, zone_model)
+    if distribution is not None:
+        container.pyplot(plot_power_zones(distribution))
+
+
 def _render_zones(
     records: list[RecordPoint],
     hr_rest: int | None,
     hr_max: int | None,
     ftp_watts: int | None,
 ) -> None:
-    """Render HF- and power-zone bar charts, whichever profile is known."""
+    """Render HF- and power-zone bar charts, side by side if both are known.
+
+    Falls back to a single full-width chart instead of leaving an empty
+    column when only one of the two is available.
+    """
     hr_distribution = heart_rate_zone_distribution(records, hr_rest, hr_max)
-    power_distribution = power_zone_distribution(records, ftp_watts)
-    if hr_distribution is None and power_distribution is None:
+    has_power_zones = _has_power_zone_data(records, ftp_watts)
+    if hr_distribution is None and not has_power_zones:
         return
 
     st.subheader("Zonen")
-    columns = st.columns(2)
-    if hr_distribution is not None:
-        columns[0].pyplot(plot_heart_rate_zones(hr_distribution))
-    if power_distribution is not None:
-        columns[1].pyplot(plot_power_zones(power_distribution))
+    if hr_distribution is not None and has_power_zones:
+        hr_column, power_column = st.columns(2)
+        hr_column.pyplot(plot_heart_rate_zones(hr_distribution))
+        _render_power_zone_plot(power_column, records, ftp_watts)
+    elif hr_distribution is not None:
+        st.pyplot(plot_heart_rate_zones(hr_distribution))
+    else:
+        _render_power_zone_plot(st.container(), records, ftp_watts)
 
 
 def _render_gps_map(workout: Workout, series: pl.DataFrame) -> None:

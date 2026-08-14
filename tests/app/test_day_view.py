@@ -2,7 +2,11 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.day_view import _format_optional, _has_strictly_increasing_timestamps
+from app.day_view import (
+    _format_optional,
+    _has_power_zone_data,
+    _has_strictly_increasing_timestamps,
+)
 from models import RecordPoint
 
 _START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
@@ -37,3 +41,27 @@ def test_has_strictly_increasing_timestamps_rejects_a_duplicate() -> None:
 
 def test_has_strictly_increasing_timestamps_accepts_a_single_record() -> None:
     assert _has_strictly_increasing_timestamps([RecordPoint(timestamp=_START)]) is True
+
+
+def test_has_power_zone_data_requires_an_ftp() -> None:
+    records = [
+        RecordPoint(timestamp=_START + timedelta(seconds=i), power=200)
+        for i in range(3)
+    ]
+
+    assert _has_power_zone_data(records, ftp_watts=None) is False
+
+
+def test_has_power_zone_data_requires_two_power_samples() -> None:
+    records = [RecordPoint(timestamp=_START, power=200)]
+
+    assert _has_power_zone_data(records, ftp_watts=210) is False
+
+
+def test_has_power_zone_data_true_with_ftp_and_enough_samples() -> None:
+    records = [
+        RecordPoint(timestamp=_START + timedelta(seconds=i), power=200)
+        for i in range(3)
+    ]
+
+    assert _has_power_zone_data(records, ftp_watts=210) is True

@@ -16,7 +16,7 @@ _POWER_ZONE_COLOR: Final = "#c1440e"
 
 _HR_ZONE_LABELS: Final[tuple[str, ...]] = tuple(f"Zone {i}" for i in range(1, 6))
 
-_POWER_ZONE_MODEL_LABELS: Final[dict[PowerZoneModel, str]] = {
+POWER_ZONE_MODEL_LABELS: Final[dict[PowerZoneModel, str]] = {
     PowerZoneModel.POLARIZED_3: "3 Zonen (polarisiert)",
     PowerZoneModel.CLASSIC_5: "5 Zonen (klassisch)",
     PowerZoneModel.BRITISH_CYCLING_6: "6 Zonen (British Cycling)",
@@ -117,7 +117,7 @@ def plot_power_zones(distribution: PowerZoneDistribution) -> Figure:
     ax = fig.add_subplot()
     ax.bar(labels, minutes, color=_POWER_ZONE_COLOR)
     ax.set_ylabel("Minuten")
-    model_label = _POWER_ZONE_MODEL_LABELS[distribution.zone_model]
+    model_label = POWER_ZONE_MODEL_LABELS[distribution.zone_model]
     ax.set_title(f"Leistungszonen ({model_label}, FTP {distribution.ftp} W)")
     ax.tick_params(axis="x", rotation=30)
     for label in ax.get_xticklabels():

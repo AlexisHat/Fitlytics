@@ -11,10 +11,11 @@ from plots.gps_map import (
 from plots.interval_chart import plot_interval_blocks
 from plots.series import available_channels, build_time_series
 from plots.timeline import XAxisMode, build_timeline_figure
-from plots.zones import plot_heart_rate_zones, plot_power_zones
+from plots.zones import POWER_ZONE_MODEL_LABELS, plot_heart_rate_zones, plot_power_zones
 
 __all__ = [
     "METRICS",
+    "POWER_ZONE_MODEL_LABELS",
     "MetricKey",
     "MetricScale",
     "MetricSpec",
