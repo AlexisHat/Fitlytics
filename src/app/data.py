@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import IO, NamedTuple
 
 from errors import DataValidationError, FileImportError
-from models import RecoveryDay, Workout
+from models import PlannedIntervalSpec, RecoveryDay, Workout, WorkoutCategory
 from readers.fit import import_fit_file
 from readers.whoop import import_whoop_csv
 from storage.workouts import load_workouts, save_workout
@@ -50,9 +50,27 @@ class WorkoutImport(NamedTuple):
     report: ValidationReport
 
 
+class WorkoutUploadDetails(NamedTuple):
+    """The athlete-entered metadata for one uploaded FIT file.
+
+    Attributes:
+        name: An optional title; None leaves the workout's own name unset,
+            so it falls back to :attr:`models.Workout.display_name`.
+        category: The athlete-assigned training category, or None if not
+            given.
+        planned_intervals: The plan's interval structure, or None; only
+            meaningful when ``category`` is
+            :attr:`models.WorkoutCategory.INTERVALLE`.
+    """
+
+    name: str | None = None
+    category: WorkoutCategory | None = None
+    planned_intervals: PlannedIntervalSpec | None = None
+
+
 def import_workouts(
     files: Sequence[UploadSource],
-    names: Sequence[str | None] | None = None,
+    details: Sequence[WorkoutUploadDetails] | None = None,
 ) -> tuple[list[WorkoutImport], list[ImportFailure]]:
     """Import and validate every uploaded FIT file, skipping unusable ones.
 
@@ -63,26 +81,34 @@ def import_workouts(
     Args:
         files: Uploaded FIT files, e.g. from
             ``st.file_uploader(accept_multiple_files=True)``.
-        names: An optional title for each file, in the same order as
-            ``files``; a None entry leaves the workout's own name unset, so
-            it falls back to :attr:`models.Workout.display_name`. Defaults
-            to no title for any file.
+        details: The athlete-entered title/category/plan for each file, in
+            the same order as ``files``. Defaults to nothing given for any
+            file.
 
     Returns:
         The successfully imported workouts and the failures, both in the
         order ``files`` was given.
     """
-    resolved_names = names if names is not None else [None] * len(files)
+    resolved_details = (
+        details if details is not None else [WorkoutUploadDetails()] * len(files)
+    )
     imports: list[WorkoutImport] = []
     failures: list[ImportFailure] = []
-    for file, name in zip(files, resolved_names, strict=True):
+    for file, detail in zip(files, resolved_details, strict=True):
         try:
             workout, report = validate_workout(import_fit_file(file))
         except (FileImportError, DataValidationError) as exc:
             failures.append(ImportFailure(file.name, str(exc)))
             continue
-        if name is not None:
-            workout = workout.model_copy(update={"name": name})
+        update: dict[str, object] = {}
+        if detail.name is not None:
+            update["name"] = detail.name
+        if detail.category is not None:
+            update["category"] = detail.category
+        if detail.planned_intervals is not None:
+            update["planned_intervals"] = detail.planned_intervals
+        if update:
+            workout = workout.model_copy(update=update)
         imports.append(WorkoutImport(file.name, workout, report))
     return imports, failures
 

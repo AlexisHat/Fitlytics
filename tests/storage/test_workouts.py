@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from errors import StorageError
-from models import RecordPoint, Workout
+from models import PlannedIntervalSpec, RecordPoint, Workout, WorkoutCategory
 from storage.schema import init_db
 from storage.workouts import load_workouts, save_workout
 
@@ -17,10 +17,14 @@ def _workout(
     start_time: datetime = START,
     ftp_watts: int | None = 210,
     name: str | None = None,
+    category: WorkoutCategory | None = None,
+    planned_intervals: PlannedIntervalSpec | None = None,
 ) -> Workout:
     return Workout(
         start_time=start_time,
         name=name,
+        category=category,
+        planned_intervals=planned_intervals,
         sport="cycling",
         sub_sport="generic",
         ftp_watts=ftp_watts,
@@ -111,6 +115,43 @@ def test_load_workouts_roundtrips_no_name_as_none(conn: sqlite3.Connection) -> N
     loaded = load_workouts(conn)[0]
 
     assert loaded.name is None
+
+
+def test_load_workouts_roundtrips_a_category_without_a_plan(
+    conn: sqlite3.Connection,
+) -> None:
+    workout = _workout(category=WorkoutCategory.GRUNDLAGE)
+    save_workout(conn, workout)
+
+    loaded = load_workouts(conn)[0]
+
+    assert loaded.category is WorkoutCategory.GRUNDLAGE
+    assert loaded.planned_intervals is None
+
+
+def test_load_workouts_roundtrips_a_planned_interval_spec(
+    conn: sqlite3.Connection,
+) -> None:
+    plan = PlannedIntervalSpec(
+        repetitions=6, duration=timedelta(minutes=4), target_power_w=280
+    )
+    workout = _workout(category=WorkoutCategory.INTERVALLE, planned_intervals=plan)
+    save_workout(conn, workout)
+
+    loaded = load_workouts(conn)[0]
+
+    assert loaded.category is WorkoutCategory.INTERVALLE
+    assert loaded.planned_intervals == plan
+
+
+def test_load_workouts_roundtrips_no_category_as_none(
+    conn: sqlite3.Connection,
+) -> None:
+    save_workout(conn, _workout())
+
+    loaded = load_workouts(conn)[0]
+
+    assert loaded.category is None
 
 
 def test_load_workouts_returns_empty_list_for_an_empty_database(

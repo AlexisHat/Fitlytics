@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS workouts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     start_time TEXT NOT NULL UNIQUE,
     name TEXT,
+    category TEXT,
     sport TEXT NOT NULL,
     sub_sport TEXT,
     ftp_watts INTEGER,
@@ -28,14 +29,34 @@ CREATE TABLE IF NOT EXISTS workouts (
     total_work_j REAL,
     device_normalized_power INTEGER,
     device_intensity_factor REAL,
-    device_training_stress_score REAL
+    device_training_stress_score REAL,
+    planned_interval_repetitions INTEGER,
+    planned_interval_duration_s INTEGER,
+    planned_interval_target_power_w INTEGER
 )
 """
 """``start_time`` is UNIQUE (ISO 8601 UTC): the natural key for "is this
 workout already saved?", since one athlete cannot start two workouts at the
 exact same instant."""
 
-_ADD_WORKOUTS_NAME_COLUMN = "ALTER TABLE workouts ADD COLUMN name TEXT"
+_WORKOUTS_COLUMN_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("name", "ALTER TABLE workouts ADD COLUMN name TEXT"),
+    ("category", "ALTER TABLE workouts ADD COLUMN category TEXT"),
+    (
+        "planned_interval_repetitions",
+        "ALTER TABLE workouts ADD COLUMN planned_interval_repetitions INTEGER",
+    ),
+    (
+        "planned_interval_duration_s",
+        "ALTER TABLE workouts ADD COLUMN planned_interval_duration_s INTEGER",
+    ),
+    (
+        "planned_interval_target_power_w",
+        "ALTER TABLE workouts ADD COLUMN planned_interval_target_power_w INTEGER",
+    ),
+)
+"""Columns introduced after ``workouts`` was first created, each with the
+``ALTER TABLE`` statement that adds it to a database missing it."""
 
 _CREATE_RECORDS_TABLE = """
 CREATE TABLE IF NOT EXISTS records (
@@ -66,16 +87,17 @@ CREATE TABLE IF NOT EXISTS athlete_profile (
 current profile, not a history of edits to it."""
 
 
-def _ensure_workouts_name_column(conn: sqlite3.Connection) -> None:
-    """Add ``workouts.name`` to a database created before this column existed.
+def _ensure_workouts_columns(conn: sqlite3.Connection) -> None:
+    """Add any ``workouts`` columns missing on a database from an older version.
 
     ``CREATE TABLE IF NOT EXISTS`` leaves an already-existing table
-    untouched, so a database from before workout titles existed would
-    otherwise never gain the new column.
+    untouched, so a database created before a given column existed would
+    otherwise never gain it.
     """
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(workouts)")}
-    if "name" not in columns:
-        conn.execute(_ADD_WORKOUTS_NAME_COLUMN)
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(workouts)")}
+    for column, statement in _WORKOUTS_COLUMN_MIGRATIONS:
+        if column not in existing:
+            conn.execute(statement)
 
 
 @deal.raises(StorageError)
@@ -104,7 +126,7 @@ def init_db(path: str | Path) -> sqlite3.Connection:
             conn.execute(_CREATE_WORKOUTS_TABLE)
             conn.execute(_CREATE_RECORDS_TABLE)
             conn.execute(_CREATE_ATHLETE_PROFILE_TABLE)
-            _ensure_workouts_name_column(conn)
+            _ensure_workouts_columns(conn)
         return conn
     except (sqlite3.Error, OSError) as exc:
         raise StorageError(f"could not initialize database: {exc}") from exc

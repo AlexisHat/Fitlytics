@@ -1,11 +1,11 @@
 """Tests for models.workout."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from models import RecordPoint, Workout
+from models import PlannedIntervalSpec, RecordPoint, Workout, WorkoutCategory
 
 
 def test_workout_construction_succeeds_with_valid_data() -> None:
@@ -200,4 +200,87 @@ def test_workout_rejects_negative_total_ascent() -> None:
             records=[
                 RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))
             ],
+        )
+
+
+def _single_record_workout(**overrides: object) -> Workout:
+    return Workout(
+        start_time=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC),
+        sport="cycling",
+        records=[RecordPoint(timestamp=datetime(2026, 7, 16, 14, 11, 39, tzinfo=UTC))],
+        **overrides,  # type: ignore[arg-type]
+    )
+
+
+def test_workout_accepts_a_category_without_a_plan() -> None:
+    workout = _single_record_workout(category=WorkoutCategory.GRUNDLAGE)
+
+    assert workout.category is WorkoutCategory.GRUNDLAGE
+    assert workout.planned_intervals is None
+
+
+def test_workout_accepts_a_matching_category_and_plan() -> None:
+    plan = PlannedIntervalSpec(
+        repetitions=6, duration=timedelta(minutes=4), target_power_w=280
+    )
+
+    workout = _single_record_workout(
+        category=WorkoutCategory.INTERVALLE, planned_intervals=plan
+    )
+
+    assert workout.planned_intervals == plan
+
+
+def test_workout_rejects_a_plan_without_the_intervalle_category() -> None:
+    plan = PlannedIntervalSpec(
+        repetitions=6, duration=timedelta(minutes=4), target_power_w=280
+    )
+
+    with pytest.raises(PydanticValidationError):
+        _single_record_workout(
+            category=WorkoutCategory.GRUNDLAGE, planned_intervals=plan
+        )
+
+
+def test_workout_rejects_a_plan_without_any_category() -> None:
+    plan = PlannedIntervalSpec(
+        repetitions=6, duration=timedelta(minutes=4), target_power_w=280
+    )
+
+    with pytest.raises(PydanticValidationError):
+        _single_record_workout(planned_intervals=plan)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"repetitions": 0},
+        {"repetitions": -1},
+        {"target_power_w": 0},
+        {"target_power_w": -1},
+    ],
+)
+def test_planned_interval_spec_rejects_non_positive_counts(
+    overrides: dict[str, int],
+) -> None:
+    fields: dict[str, object] = {
+        "repetitions": 6,
+        "duration": timedelta(minutes=4),
+        "target_power_w": 280,
+    }
+    fields.update(overrides)
+
+    with pytest.raises(PydanticValidationError):
+        PlannedIntervalSpec(**fields)  # type: ignore[arg-type]
+
+
+def test_planned_interval_spec_rejects_a_zero_duration() -> None:
+    with pytest.raises(PydanticValidationError):
+        PlannedIntervalSpec(repetitions=6, duration=timedelta(0), target_power_w=280)
+
+
+def test_planned_interval_spec_rejects_a_negative_duration() -> None:
+    with pytest.raises(PydanticValidationError):
+        PlannedIntervalSpec(
+            repetitions=6, duration=timedelta(minutes=-1), target_power_w=280
         )

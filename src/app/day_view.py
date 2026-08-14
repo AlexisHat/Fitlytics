@@ -2,6 +2,7 @@
 
 from datetime import date
 from itertools import pairwise
+from typing import Final, Literal
 
 import polars as pl
 import streamlit as st
@@ -24,7 +25,7 @@ from intervals import (
     resample_to_1hz,
     summarize_interval_blocks,
 )
-from models import RecordPoint, RecoveryDay, Workout
+from models import RecordPoint, RecoveryDay, Workout, WorkoutCategory
 from plots import (
     METRICS,
     POWER_ZONE_MODEL_LABELS,
@@ -36,6 +37,32 @@ from plots import (
     plot_interval_blocks,
     plot_power_zones,
 )
+
+WORKOUT_CATEGORY_LABELS: Final[dict[WorkoutCategory, str]] = {
+    WorkoutCategory.GRUNDLAGE: "Grundlage",
+    WorkoutCategory.INTERVALLE: "Intervalle",
+    WorkoutCategory.GROUPRIDE: "Groupride",
+    WorkoutCategory.RECOVERY: "Recovery",
+    WorkoutCategory.SONSTIGE: "Sonstige",
+}
+"""German display label per training category, shared by the upload
+selectbox (:mod:`app.main`) and this module's category badge."""
+
+_BadgeColor = Literal[
+    "red", "orange", "yellow", "blue", "green", "violet", "gray", "grey", "primary"
+]
+"""Mirrors ``st.badge``'s own ``color`` parameter type, which streamlit does
+not export as a reusable name."""
+
+_WORKOUT_CATEGORY_BADGE_COLORS: Final[dict[WorkoutCategory, _BadgeColor]] = {
+    WorkoutCategory.GRUNDLAGE: "blue",
+    WorkoutCategory.INTERVALLE: "orange",
+    WorkoutCategory.GROUPRIDE: "green",
+    WorkoutCategory.RECOVERY: "gray",
+    WorkoutCategory.SONSTIGE: "violet",
+}
+"""Badge colour per category; orange/green match the power/HF panel colours
+used elsewhere in the timeline."""
 
 
 def _format_optional(value: float | None, template: str) -> str:
@@ -82,6 +109,28 @@ def _select_workout(workouts: tuple[Workout, ...]) -> Workout:
         "Workout", options=range(len(workouts)), format_func=lambda i: labels[i]
     )
     return workouts[choice if choice is not None else 0]
+
+
+def _render_title(workout: Workout, day_date: date) -> None:
+    """Render the workout's title, with its category badge at the right."""
+    title_column, tag_column = st.columns([5, 1])
+    title_column.subheader(f"{workout.display_name} — {day_date.isoformat()}")
+    if workout.category is not None:
+        tag_column.badge(
+            WORKOUT_CATEGORY_LABELS[workout.category],
+            color=_WORKOUT_CATEGORY_BADGE_COLORS[workout.category],
+        )
+
+
+def _render_planned_intervals(workout: Workout) -> None:
+    """Show the plan's interval structure as a caption, if one was entered."""
+    plan = workout.planned_intervals
+    if plan is None:
+        return
+    minutes = plan.duration.total_seconds() / 60
+    st.caption(
+        f"Geplant: {plan.repetitions}× {minutes:.0f} min bei {plan.target_power_w} W"
+    )
 
 
 def _render_metrics(workout: Workout) -> None:
@@ -331,7 +380,8 @@ def render_day(
         return
 
     workout = _select_workout(day.workouts)
-    st.subheader(f"{workout.display_name} — {day.date.isoformat()}")
+    _render_title(workout, day.date)
+    _render_planned_intervals(workout)
     _render_metrics(workout)
     _render_recovery(day.date, recovery_days)
 

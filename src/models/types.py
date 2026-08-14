@@ -4,7 +4,7 @@ These carry the constraints that follow from the quantity itself, so that no
 model can be constructed in a state later code would have to guard against.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from pydantic import AfterValidator, Field
@@ -56,3 +56,33 @@ definition, regardless of how implausible the position is otherwise."""
 Longitude = Annotated[float, Field(ge=-180, le=180)]
 """Decimal-degree longitude; values outside -180 to 180 are impossible by
 definition, regardless of how implausible the position is otherwise."""
+
+
+def _require_positive(value: timedelta) -> timedelta:
+    """Reject a zero or negative duration.
+
+    Args:
+        value: The duration to check.
+
+    Returns:
+        The same duration, unchanged.
+
+    Raises:
+        ValueError: If ``value`` is zero or negative.
+
+    >>> from datetime import timedelta
+    >>> _require_positive(timedelta(minutes=4))
+    datetime.timedelta(seconds=240)
+    >>> _require_positive(timedelta(0))
+    Traceback (most recent call last):
+        ...
+    ValueError: duration must be positive
+    """
+    if value <= timedelta(0):
+        raise ValueError("duration must be positive")
+    return value
+
+
+PositiveTimedelta = Annotated[timedelta, AfterValidator(_require_positive)]
+"""A duration greater than zero; a planned interval cannot last zero seconds
+by definition."""

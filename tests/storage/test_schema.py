@@ -75,3 +75,37 @@ def test_init_db_migrates_a_workouts_table_from_before_names_existed(
     rows = migrated.execute("SELECT sport, name FROM workouts").fetchall()
 
     assert [(row["sport"], row["name"]) for row in rows] == [("cycling", None)]
+
+
+def test_init_db_migrates_a_workouts_table_from_before_category_existed(
+    tmp_path: Path,
+) -> None:
+    """A database from before workout categories existed has none of the
+    category/planned-interval columns yet."""
+    db_path = tmp_path / "fitlytics.db"
+
+    pre_existing = sqlite3.connect(db_path)
+    pre_existing.execute(
+        """
+        CREATE TABLE workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time TEXT NOT NULL UNIQUE,
+            name TEXT,
+            sport TEXT NOT NULL
+        )
+        """
+    )
+    pre_existing.execute(
+        "INSERT INTO workouts (start_time, sport) VALUES (?, ?)",
+        ("2026-07-16T14:00:00+00:00", "cycling"),
+    )
+    pre_existing.commit()
+    pre_existing.close()
+
+    migrated = init_db(db_path)
+    rows = migrated.execute(
+        "SELECT category, planned_interval_repetitions, planned_interval_duration_s, "
+        "planned_interval_target_power_w FROM workouts"
+    ).fetchall()
+
+    assert [tuple(row) for row in rows] == [(None, None, None, None)]

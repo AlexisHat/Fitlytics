@@ -8,6 +8,7 @@ not persisted (see ``docs/entscheidungen.md``, Meilenstein 10).
 """
 
 from collections.abc import Sequence
+from datetime import timedelta
 from pathlib import Path
 from typing import Final
 
@@ -18,31 +19,40 @@ from analysis.calendar import CalendarDay
 from app.calendar_view import render_calendar
 from app.data import (
     WorkoutImport,
+    WorkoutUploadDetails,
     import_recovery_days,
     import_workouts,
     save_and_load_workouts,
 )
-from app.day_view import render_day
+from app.day_view import WORKOUT_CATEGORY_LABELS, render_day
 from errors import StorageError
-from models import Workout
+from models import PlannedIntervalSpec, Workout, WorkoutCategory
 from storage import init_db
 from storage.profile import load_profile, save_profile
 
 _DB_PATH: Final = Path("data/private/fitlytics.db")
 
 
-def _optional_sidebar_number(label: str, default: int | None = None) -> int | None:
+def _optional_sidebar_number(
+    label: str, default: int | None = None, key: str | None = None
+) -> int | None:
     """Render a sidebar number input where 0 means "unknown", not a literal 0.
 
     Args:
         label: Field label shown to the user.
         default: Value to pre-fill the field with (e.g. a previously saved
             profile value), or None to start at "unknown".
+        key: Unique widget key; required when this input is rendered more
+            than once per rerun (e.g. once per uploaded file), since
+            Streamlit would otherwise collide on the key auto-generated
+            from the label alone.
 
     Returns:
         The entered value, or None if left at 0.
     """
-    value = st.sidebar.number_input(label, min_value=0, value=default or 0, step=1)
+    value = st.sidebar.number_input(
+        label, min_value=0, value=default or 0, step=1, key=key
+    )
     return int(value) or None
 
 
@@ -155,26 +165,76 @@ def _persist_profile(
         )
 
 
-def _render_workout_name_inputs(files: Sequence[UploadedFile]) -> list[str | None]:
-    """Render an optional title field for each newly uploaded FIT file.
+def _render_planned_interval_inputs(file_id: str) -> PlannedIntervalSpec | None:
+    """Render the plan's repetitions/duration/target-power fields, if any.
+
+    All three are optional and only shown once the athlete has picked the
+    Intervalle category for this file; a plan is only built once every one
+    of them was actually filled in, matching how the rest of the sidebar
+    treats a left-at-zero field as "not given" rather than a real 0.
+
+    Args:
+        file_id: The uploaded file's unique id, to key the widgets by.
+
+    Returns:
+        The planned interval structure, or None if any field was left blank.
+    """
+    repetitions = _optional_sidebar_number(
+        "Wiederholungen", key=f"workout_interval_reps_{file_id}"
+    )
+    duration_min = _optional_sidebar_number(
+        "Dauer je Intervall (min)", key=f"workout_interval_duration_{file_id}"
+    )
+    target_power_w = _optional_sidebar_number(
+        "Ziel-Leistung (W)", key=f"workout_interval_power_{file_id}"
+    )
+    if repetitions is None or duration_min is None or target_power_w is None:
+        return None
+    return PlannedIntervalSpec(
+        repetitions=repetitions,
+        duration=timedelta(minutes=duration_min),
+        target_power_w=target_power_w,
+    )
+
+
+def _render_workout_upload_details(
+    files: Sequence[UploadedFile],
+) -> list[WorkoutUploadDetails]:
+    """Render the title, category and, for Intervalle, plan fields per file.
 
     Args:
         files: This rerun's uploaded FIT files, in upload order.
 
     Returns:
-        One optional, trimmed title per file, in the same order as
-        ``files``; None where left blank, so :func:`app.data.import_workouts`
-        leaves the workout to fall back to its generated title.
+        One :class:`~app.data.WorkoutUploadDetails` per file, in the same
+        order as ``files``.
     """
-    names: list[str | None] = []
+    details: list[WorkoutUploadDetails] = []
     for file in files:
-        entered = st.sidebar.text_input(
+        entered_name = st.sidebar.text_input(
             f"Titel für {file.name}",
             key=f"workout_name_{file.file_id}",
             placeholder="optional, sonst „Training am <Datum>“",
         )
-        names.append(entered.strip() or None)
-    return names
+        category = st.sidebar.selectbox(
+            f"Kategorie für {file.name}",
+            options=[None, *WorkoutCategory],
+            format_func=lambda c: "–" if c is None else WORKOUT_CATEGORY_LABELS[c],
+            key=f"workout_category_{file.file_id}",
+        )
+        planned_intervals = (
+            _render_planned_interval_inputs(file.file_id)
+            if category is WorkoutCategory.INTERVALLE
+            else None
+        )
+        details.append(
+            WorkoutUploadDetails(
+                name=entered_name.strip() or None,
+                category=category,
+                planned_intervals=planned_intervals,
+            )
+        )
+    return details
 
 
 def _render_sidebar() -> None:
@@ -183,10 +243,12 @@ def _render_sidebar() -> None:
     fit_files = st.sidebar.file_uploader(
         "FIT-Dateien (Trainings)", type="fit", accept_multiple_files=True
     )
-    workout_names = _render_workout_name_inputs(fit_files or [])
+    workout_upload_details = _render_workout_upload_details(fit_files or [])
     csv_file = st.sidebar.file_uploader("Whoop-CSV (Recovery)", type="csv")
 
-    workout_imports, workout_failures = import_workouts(fit_files or [], workout_names)
+    workout_imports, workout_failures = import_workouts(
+        fit_files or [], workout_upload_details
+    )
     recovery_days, recovery_report, recovery_failure = import_recovery_days(csv_file)
 
     workouts, duplicate_workout_imports = _load_persisted_workouts(workout_imports)

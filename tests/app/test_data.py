@@ -1,8 +1,15 @@
 """Tests for app.data."""
 
+from datetime import timedelta
 from pathlib import Path
 
-from app.data import import_recovery_days, import_workouts, save_and_load_workouts
+from app.data import (
+    WorkoutUploadDetails,
+    import_recovery_days,
+    import_workouts,
+    save_and_load_workouts,
+)
+from models import PlannedIntervalSpec, WorkoutCategory
 from storage.schema import init_db
 
 VALID_FIT = Path("data/beispiel/training_gueltig.fit")
@@ -56,18 +63,55 @@ def test_import_workouts_leaves_name_unset_without_one_given() -> None:
 
 
 def test_import_workouts_applies_a_given_name() -> None:
-    imports, _ = import_workouts([VALID_FIT], ["Feierabendrunde"])
+    imports, _ = import_workouts(
+        [VALID_FIT], [WorkoutUploadDetails(name="Feierabendrunde")]
+    )
 
     assert imports[0].workout.name == "Feierabendrunde"
 
 
-def test_import_workouts_matches_names_to_files_by_position() -> None:
+def test_import_workouts_matches_details_to_files_by_position() -> None:
     imports, _ = import_workouts(
-        [VALID_FIT, BROKEN_FIT], ["Meine Runde", "Kaputte Datei"]
+        [VALID_FIT, BROKEN_FIT],
+        [
+            WorkoutUploadDetails(name="Meine Runde"),
+            WorkoutUploadDetails(name="Kaputte Datei"),
+        ],
     )
 
     assert len(imports) == 1
     assert imports[0].workout.name == "Meine Runde"
+
+
+def test_import_workouts_leaves_category_unset_without_one_given() -> None:
+    imports, _ = import_workouts([VALID_FIT])
+
+    assert imports[0].workout.category is None
+
+
+def test_import_workouts_applies_a_given_category() -> None:
+    imports, _ = import_workouts(
+        [VALID_FIT], [WorkoutUploadDetails(category=WorkoutCategory.RECOVERY)]
+    )
+
+    assert imports[0].workout.category is WorkoutCategory.RECOVERY
+
+
+def test_import_workouts_applies_a_given_planned_interval_spec() -> None:
+    plan = PlannedIntervalSpec(
+        repetitions=6, duration=timedelta(minutes=4), target_power_w=280
+    )
+
+    imports, _ = import_workouts(
+        [VALID_FIT],
+        [
+            WorkoutUploadDetails(
+                category=WorkoutCategory.INTERVALLE, planned_intervals=plan
+            )
+        ],
+    )
+
+    assert imports[0].workout.planned_intervals == plan
 
 
 def test_import_recovery_days_returns_nothing_without_a_file() -> None:

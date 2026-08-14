@@ -1,8 +1,18 @@
 """Pydantic models for a single training session imported from a FIT file."""
 
-from pydantic import BaseModel, Field, NonNegativeFloat, NonNegativeInt, PositiveInt
+from enum import StrEnum
+from typing import Self
 
-from models.types import Latitude, Longitude, UtcDatetime
+from pydantic import (
+    BaseModel,
+    Field,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+    model_validator,
+)
+
+from models.types import Latitude, Longitude, PositiveTimedelta, UtcDatetime
 
 
 class RecordPoint(BaseModel):
@@ -41,6 +51,47 @@ class RecordPoint(BaseModel):
     longitude: Longitude | None = None
 
 
+class WorkoutCategory(StrEnum):
+    """Athlete-assigned training category, chosen at upload time.
+
+    Purely a self-classification of intent — nothing here is derived from
+    the recorded data itself, unlike e.g. :mod:`intervals`' detection.
+
+    Attributes:
+        GRUNDLAGE: Steady, low-intensity endurance ride.
+        INTERVALLE: A planned interval session; see
+            :class:`PlannedIntervalSpec` for the session's structure.
+        GROUPRIDE: Social or race-pace group ride, intensity not
+            self-directed.
+        RECOVERY: Deliberately easy ride for recovery.
+        SONSTIGE: Anything not covered by the other categories.
+    """
+
+    GRUNDLAGE = "grundlage"
+    INTERVALLE = "intervalle"
+    GROUPRIDE = "groupride"
+    RECOVERY = "recovery"
+    SONSTIGE = "sonstige"
+
+
+class PlannedIntervalSpec(BaseModel):
+    """The athlete's planned interval structure, entered at upload time.
+
+    A statement of intent from the training plan, independent of what
+    :mod:`intervals` later detects from the recorded power data — the two
+    are never reconciled automatically.
+
+    Attributes:
+        repetitions: How many repeats the plan called for.
+        duration: Planned duration of a single repeat.
+        target_power_w: Planned power target for a single repeat, in watts.
+    """
+
+    repetitions: PositiveInt
+    duration: PositiveTimedelta
+    target_power_w: PositiveInt
+
+
 class Workout(BaseModel):
     """A single training session imported from a FIT file.
 
@@ -56,6 +107,11 @@ class Workout(BaseModel):
         name: The athlete's own title for the session, if given at upload
             time; None falls back to :attr:`display_name`, not to a
             fabricated title.
+        category: The athlete-assigned training category, if chosen at
+            upload time.
+        planned_intervals: The plan's interval structure, if ``category`` is
+            :attr:`WorkoutCategory.INTERVALLE` and it was filled in at
+            upload time; None otherwise.
         sport: Sport as reported by the device (e.g. "cycling").
         sub_sport: More specific sport classification, if available.
         ftp_watts: Functional Threshold Power configured on the device at
@@ -75,6 +131,8 @@ class Workout(BaseModel):
 
     start_time: UtcDatetime
     name: str | None = None
+    category: WorkoutCategory | None = None
+    planned_intervals: PlannedIntervalSpec | None = None
     sport: str = Field(min_length=1)
     sub_sport: str | None = None
     ftp_watts: PositiveInt | None = None
@@ -86,6 +144,27 @@ class Workout(BaseModel):
     device_intensity_factor: NonNegativeFloat | None = None
     device_training_stress_score: NonNegativeFloat | None = None
     records: list[RecordPoint] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_planned_intervals_need_interval_category(self) -> Self:
+        """Reject a planned interval spec without the matching category.
+
+        A plan only makes sense for a session actually categorized as
+        intervals — this catches an inconsistent construction (e.g. a stale
+        category edit) rather than silently keeping an orphaned plan.
+
+        Raises:
+            ValueError: If planned_intervals is set but category is not
+                WorkoutCategory.INTERVALLE.
+        """
+        if (
+            self.planned_intervals is not None
+            and self.category is not WorkoutCategory.INTERVALLE
+        ):
+            raise ValueError(
+                "planned_intervals requires category to be WorkoutCategory.INTERVALLE"
+            )
+        return self
 
     @property
     def has_gps_track(self) -> bool:

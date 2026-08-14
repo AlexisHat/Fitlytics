@@ -1,21 +1,24 @@
 """Save and load workouts to/from the local SQLite database."""
 
 import sqlite3
+from datetime import timedelta
 
 import deal
 from pydantic import ValidationError as PydanticValidationError
 
 from errors import StorageError
-from models import RecordPoint, Workout
+from models import PlannedIntervalSpec, RecordPoint, Workout, WorkoutCategory
 
 _SELECT_WORKOUT_ID_BY_START_TIME = "SELECT id FROM workouts WHERE start_time = ?"
 
 _INSERT_WORKOUT = """
 INSERT INTO workouts (
-    start_time, name, sport, sub_sport, ftp_watts, total_ascent_m, total_descent_m,
-    avg_grade_pct, total_work_j, device_normalized_power,
-    device_intensity_factor, device_training_stress_score
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    start_time, name, category, sport, sub_sport, ftp_watts, total_ascent_m,
+    total_descent_m, avg_grade_pct, total_work_j, device_normalized_power,
+    device_intensity_factor, device_training_stress_score,
+    planned_interval_repetitions, planned_interval_duration_s,
+    planned_interval_target_power_w
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_RECORD = """
@@ -26,9 +29,11 @@ INSERT INTO records (
 """
 
 _SELECT_ALL_WORKOUTS = """
-SELECT id, start_time, name, sport, sub_sport, ftp_watts, total_ascent_m,
+SELECT id, start_time, name, category, sport, sub_sport, ftp_watts, total_ascent_m,
        total_descent_m, avg_grade_pct, total_work_j, device_normalized_power,
-       device_intensity_factor, device_training_stress_score
+       device_intensity_factor, device_training_stress_score,
+       planned_interval_repetitions, planned_interval_duration_s,
+       planned_interval_target_power_w
 FROM workouts
 ORDER BY start_time
 """
@@ -79,9 +84,11 @@ def save_workout(conn: sqlite3.Connection, workout: Workout) -> bool:
 
 def _workout_row(workout: Workout) -> tuple[object, ...]:
     """The column values for one INSERT INTO workouts, in table order."""
+    plan = workout.planned_intervals
     return (
         workout.start_time.isoformat(),
         workout.name,
+        workout.category.value if workout.category is not None else None,
         workout.sport,
         workout.sub_sport,
         workout.ftp_watts,
@@ -92,6 +99,9 @@ def _workout_row(workout: Workout) -> tuple[object, ...]:
         workout.device_normalized_power,
         workout.device_intensity_factor,
         workout.device_training_stress_score,
+        plan.repetitions if plan is not None else None,
+        plan.duration.total_seconds() if plan is not None else None,
+        plan.target_power_w if plan is not None else None,
     )
 
 
@@ -127,10 +137,23 @@ def _record_from_row(row: sqlite3.Row) -> RecordPoint:
     )
 
 
+def _planned_intervals_from_row(row: sqlite3.Row) -> PlannedIntervalSpec | None:
+    repetitions = row["planned_interval_repetitions"]
+    if repetitions is None:
+        return None
+    return PlannedIntervalSpec(
+        repetitions=repetitions,
+        duration=timedelta(seconds=row["planned_interval_duration_s"]),
+        target_power_w=row["planned_interval_target_power_w"],
+    )
+
+
 def _workout_from_row(row: sqlite3.Row, records: list[RecordPoint]) -> Workout:
     return Workout(
         start_time=row["start_time"],
         name=row["name"],
+        category=WorkoutCategory(row["category"]) if row["category"] else None,
+        planned_intervals=_planned_intervals_from_row(row),
         sport=row["sport"],
         sub_sport=row["sub_sport"],
         ftp_watts=row["ftp_watts"],
