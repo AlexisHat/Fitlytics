@@ -277,12 +277,9 @@ def _render_sidebar() -> None:
         key=f"fit_uploader_{uploader_version}",
     )
     workout_upload_details = _render_workout_upload_details(fit_files or [])
-    csv_file = st.sidebar.file_uploader("Whoop-CSV (Recovery)", type="csv")
-
     workout_imports, workout_failures = import_workouts(
         fit_files or [], workout_upload_details
     )
-    recovery_days, _, recovery_failure = import_recovery_days(csv_file)
 
     workouts = _load_stored_workouts()
     duplicate_workout_imports: list[WorkoutImport] = []
@@ -298,6 +295,9 @@ def _render_sidebar() -> None:
                 # of still showing the just-saved file.
                 st.session_state.fit_uploader_version = uploader_version + 1
                 st.rerun()
+
+    csv_file = st.sidebar.file_uploader("Whoop-CSV (Recovery)", type="csv")
+    recovery_days, _, recovery_failure = import_recovery_days(csv_file)
 
     st.session_state.workouts = workouts
     st.session_state.workout_imports = workout_imports
