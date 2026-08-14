@@ -29,6 +29,7 @@ from errors import StorageError
 from models import PlannedIntervalSpec, Workout, WorkoutCategory
 from storage import init_db
 from storage.profile import load_profile, save_profile
+from storage.workouts import load_workouts
 
 _DB_PATH: Final = Path("data/private/fitlytics.db")
 
@@ -81,25 +82,53 @@ def _validated_hr_profile(
     return hr_rest, hr_max
 
 
-def _load_persisted_workouts(
-    workout_imports: list[WorkoutImport],
-) -> tuple[list[Workout], list[WorkoutImport]]:
-    """Save this rerun's new uploads to SQLite and return every saved workout.
+def _load_stored_workouts() -> list[Workout]:
+    """Load every already-persisted workout, without saving anything new.
 
-    Falls back to just this rerun's uploads, with an error shown, if the
-    database itself is unavailable (e.g. an unwritable disk) — a storage
-    problem must not crash the app, only mean uploads won't outlive this
-    session.
+    Deliberately read-only: called on every rerun, including the ones
+    triggered by typing a title or picking a category, which must not save
+    a workout before the athlete has actually confirmed the upload (see
+    :func:`_save_workouts`).
 
-    Args:
-        workout_imports: This rerun's freshly imported and validated
-            workouts.
+    Falls back to an empty list, with an error shown, if the database is
+    unavailable.
 
     Returns:
-        Every workout ever saved, or just this rerun's uploads if
-        persistence failed; and the subset of ``workout_imports`` that were
-        already saved before (same start_time) and so were skipped as
-        duplicates.
+        Every workout saved so far, or an empty list if the database is
+        unavailable or nothing has been saved yet.
+    """
+    try:
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = init_db(_DB_PATH)
+        try:
+            return load_workouts(conn)
+        finally:
+            conn.close()
+    except (StorageError, OSError) as exc:
+        st.error(f"Gespeicherte Workouts konnten nicht geladen werden: {exc}")
+        return []
+
+
+def _save_workouts(
+    workout_imports: list[WorkoutImport],
+) -> tuple[list[Workout], list[WorkoutImport]]:
+    """Persist the given imports to SQLite and return every saved workout.
+
+    Only called from the sidebar's save button — never automatically on
+    upload, so the athlete has a chance to fill in the title, category and
+    interval plan before the workout is written to the database.
+
+    Falls back to just these imports, with an error shown, if the database
+    itself is unavailable (e.g. an unwritable disk) — a storage problem
+    must not crash the app, only mean the save won't outlive this session.
+
+    Args:
+        workout_imports: The imports to save, as confirmed by the athlete.
+
+    Returns:
+        Every workout ever saved, or just these imports if persistence
+        failed; and the subset of ``workout_imports`` that were already
+        saved before (same start_time) and so were skipped as duplicates.
     """
     try:
         _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +146,7 @@ def _load_stored_profile() -> tuple[int | None, int | None, int | None]:
     """Load the athlete's previously saved FTP/heart-rate profile, if any.
 
     Falls back to nothing saved, with an error shown, if the database is
-    unavailable — matches :func:`_load_persisted_workouts`.
+    unavailable — matches :func:`_load_stored_workouts`.
 
     Returns:
         ``(ftp_watts, hr_rest, hr_max)`` as last saved, or all None if
@@ -145,7 +174,7 @@ def _persist_profile(
     what this rerun's calculations may use, it must not cause a typo to
     silently wipe an already-saved, valid profile. Falls back to a
     session-only profile, with an error shown, if the database is
-    unavailable — matches :func:`_load_persisted_workouts`.
+    unavailable — matches :func:`_save_workouts`.
 
     Args:
         ftp_watts: The athlete's Functional Threshold Power, as entered.
@@ -251,7 +280,15 @@ def _render_sidebar() -> None:
     )
     recovery_days, recovery_report, recovery_failure = import_recovery_days(csv_file)
 
-    workouts, duplicate_workout_imports = _load_persisted_workouts(workout_imports)
+    workouts = _load_stored_workouts()
+    duplicate_workout_imports: list[WorkoutImport] = []
+    if workout_imports:
+        save_clicked = st.sidebar.button(
+            f"{len(workout_imports)} Workout(s) speichern", type="primary"
+        )
+        if save_clicked:
+            workouts, duplicate_workout_imports = _save_workouts(workout_imports)
+
     st.session_state.workouts = workouts
     st.session_state.workout_imports = workout_imports
     st.session_state.duplicate_workout_imports = duplicate_workout_imports
@@ -274,7 +311,7 @@ def _render_sidebar() -> None:
 
 
 def _render_import_log() -> None:
-    """Show import failures and a summary of what was successfully imported."""
+    """Show import failures, pending uploads, and a summary of what is saved."""
     for failure in st.session_state.workout_failures:
         st.error(f"{failure.filename}: {failure.message}")
     for duplicate in st.session_state.duplicate_workout_imports:
@@ -287,7 +324,18 @@ def _render_import_log() -> None:
         failure = st.session_state.recovery_failure
         st.error(f"{failure.filename}: {failure.message}")
 
-    if not st.session_state.workouts and not st.session_state.recovery_days:
+    if st.session_state.workout_imports:
+        st.info(
+            f"{len(st.session_state.workout_imports)} Workout(s) bereit zum "
+            "Speichern — Titel/Kategorie in der Sidebar ausfüllen und dort auf "
+            "„... speichern“ klicken."
+        )
+
+    if (
+        not st.session_state.workouts
+        and not st.session_state.recovery_days
+        and not st.session_state.workout_imports
+    ):
         st.info("Noch keine Daten hochgeladen.")
         return
 
