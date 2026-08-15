@@ -10,11 +10,15 @@ that grid, standstill detection marks stretches where the rider stopped
 (e.g. a red light) while the device kept recording — a different kind of
 hard block boundary than a recording gap — and a rolling quantile estimates
 the ride's local baseline power that later steps compare against.
+
+Detection itself works on a smoothed copy of the power signal rather than
+the raw one, measured against a single ride-global reference level; see
+:func:`smooth_power` and :func:`riding_level`.
 """
 
 from datetime import timedelta
 from itertools import groupby, pairwise
-from typing import Final
+from typing import Final, cast
 
 import deal
 import polars as pl
@@ -22,6 +26,8 @@ import polars as pl
 from intervals.config import (
     BASELINE_QUANTILE,
     BASELINE_WINDOW_S,
+    COASTING_POWER_W,
+    SMOOTHING_WINDOW_S,
     STANDSTILL_MIN_DURATION,
     STANDSTILL_POWER_THRESHOLD_W,
     STANDSTILL_SPEED_THRESHOLD_MS,
@@ -203,6 +209,112 @@ def mark_standstill(series: pl.DataFrame) -> pl.DataFrame:
         )
         .drop("_near_zero", "_run_id", "_run_length")
     )
+
+
+@deal.pre(lambda series: len(series) > 0)
+@deal.pre(lambda series: is_1hz_spaced(series))
+@deal.ensure(
+    lambda _: (
+        _.series["power"].min() is None
+        or _.result["smoothed_power"]
+        .drop_nulls()
+        .is_between(_.series["power"].min(), _.series["power"].max())
+        .all()
+    )
+)
+def smooth_power(series: pl.DataFrame) -> pl.DataFrame:
+    """Damp the second-to-second chatter out of a ride's power signal.
+
+    Raw 1 Hz power is far too noisy to threshold directly: it swings by a
+    median of ~12 W per second even in the middle of a steady effort, so
+    any fixed threshold on the raw signal is crossed back and forth
+    constantly and shatters one real effort into dozens of fragments.
+    Averaging over ``SMOOTHING_WINDOW_S`` removes that chatter while
+    keeping a block's start and end within a few seconds of where they
+    really are.
+
+    Args:
+        series: A 1 Hz-gridded time series with a ``power`` column, as
+            returned by :func:`resample_to_1hz`; must not be empty.
+
+    Returns:
+        ``series`` with an added ``smoothed_power`` column: the centred
+        rolling mean of ``power``, in watts. Null power readings (a gap,
+        or no power meter at all) are skipped rather than treated as zero;
+        a second with no non-null power within its window is null. The
+        window shrinks at both ends of the ride rather than padding with
+        invented values.
+
+    Raises:
+        deal.PreContractError: If ``series`` is empty or not spaced exactly
+            one second apart.
+
+    >>> from datetime import UTC, datetime
+    >>> records = [
+    ...     RecordPoint(
+    ...         timestamp=datetime(2026, 7, 16, 14, 0, i, tzinfo=UTC), power=200
+    ...     )
+    ...     for i in range(5)
+    ... ]
+    >>> smooth_power(resample_to_1hz(records))["smoothed_power"].to_list()
+    [200.0, 200.0, 200.0, 200.0, 200.0]
+    """
+    return series.with_columns(
+        pl.col("power")
+        .cast(pl.Float64)
+        .rolling_mean(SMOOTHING_WINDOW_S, center=True, min_samples=1)
+        .alias("smoothed_power")
+    )
+
+
+@deal.pre(lambda series: len(series) > 0)
+@deal.pre(lambda series: "smoothed_power" in series.columns)
+@deal.ensure(lambda _: _.result is None or _.result > COASTING_POWER_W)
+def riding_level(series: pl.DataFrame) -> float | None:
+    """Estimate the power level a ride was generally ridden at.
+
+    Interval detection needs a reference to call a stretch "hard", and
+    that reference has to come from the ride itself — an athlete's easy
+    pace is another's threshold. A single ride-global number is used
+    deliberately rather than a local rolling one: inside a long effort a
+    rolling window consists mostly of the effort itself, so the reference
+    rises along with the very thing it is supposed to measure against and
+    eats the block from within (see ``docs/entscheidungen.md``).
+
+    Coasting is excluded because a long descent is not a statement about
+    how hard the ride was; leaving it in would drag the reference down
+    until ordinary pedalling afterwards looked like an effort.
+
+    Args:
+        series: A 1 Hz-gridded time series with a ``smoothed_power``
+            column, as returned by :func:`smooth_power`; must not be
+            empty.
+
+    Returns:
+        The median smoothed power over the seconds spent actually
+        pedalling (above ``COASTING_POWER_W``), in watts, or None if the
+        ride has no such second at all — a workout recorded without a
+        power meter, or one spent entirely coasting.
+
+    Raises:
+        deal.PreContractError: If ``series`` is empty or has no
+            ``smoothed_power`` column.
+
+    >>> from datetime import UTC, datetime
+    >>> records = [
+    ...     RecordPoint(
+    ...         timestamp=datetime(2026, 7, 16, 14, 0, i, tzinfo=UTC), power=150
+    ...     )
+    ...     for i in range(5)
+    ... ]
+    >>> riding_level(smooth_power(resample_to_1hz(records)))
+    150.0
+    """
+    smoothed = series["smoothed_power"].drop_nulls()
+    pedalling = smoothed.filter(smoothed > COASTING_POWER_W)
+    if pedalling.len() == 0:
+        return None
+    return float(cast(float, pedalling.median()))
 
 
 @deal.pre(lambda series: len(series) > 0)

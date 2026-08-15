@@ -9,7 +9,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from intervals.preprocessing import compute_baseline, mark_standstill, resample_to_1hz
+from intervals.config import COASTING_POWER_W
+from intervals.preprocessing import (
+    compute_baseline,
+    mark_standstill,
+    resample_to_1hz,
+    riding_level,
+    smooth_power,
+)
 from models import RecordPoint
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
@@ -149,6 +156,91 @@ def test_standstill_rejects_irregularly_spaced_series() -> None:
     )
     with pytest.raises(deal.PreContractError):
         mark_standstill(series)
+
+
+def test_smooth_power_leaves_constant_power_unchanged() -> None:
+    series = smooth_power(resample_to_1hz(_records_from_powers([200] * 60)))
+    assert series["smoothed_power"].to_list() == [200.0] * 60
+
+
+def test_smooth_power_damps_a_one_second_spike() -> None:
+    """The whole point: a single wild second must not reach a threshold on
+    its own, or every such second shatters a real effort into fragments."""
+    powers = [100] * 60 + [600] + [100] * 60
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+
+    assert max(series["smoothed_power"].to_list()) < 200.0
+
+
+def test_smooth_power_keeps_a_sustained_effort_near_its_real_level() -> None:
+    powers = [100] * 120 + [300] * 120 + [100] * 120
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+
+    assert series["smoothed_power"].to_list()[180] == 300.0
+
+
+def test_smooth_power_is_null_without_any_power_data() -> None:
+    powers: list[int | None] = [None] * 60
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+    assert series["smoothed_power"].null_count() == 60
+
+
+def test_smooth_power_rejects_empty_series() -> None:
+    empty = resample_to_1hz(_records_from_powers([200])).filter(pl.col("power") > 1000)
+    with pytest.raises(deal.PreContractError):
+        smooth_power(empty)
+
+
+def test_smooth_power_rejects_irregularly_spaced_series() -> None:
+    series = resample_to_1hz(_records_from_powers([200] * 10)).filter(
+        pl.col("timestamp") != START + timedelta(seconds=3)
+    )
+    with pytest.raises(deal.PreContractError):
+        smooth_power(series)
+
+
+@given(power=st.integers(min_value=0, max_value=2000))
+def test_smooth_power_of_constant_power_is_that_power(power: int) -> None:
+    series = smooth_power(resample_to_1hz(_records_from_powers([power] * 40)))
+    assert series["smoothed_power"].to_list() == [float(power)] * 40
+
+
+def test_riding_level_of_constant_power_is_that_power() -> None:
+    series = smooth_power(resample_to_1hz(_records_from_powers([180] * 60)))
+    assert riding_level(series) == 180.0
+
+
+def test_riding_level_ignores_a_long_coasting_stretch() -> None:
+    """A descent says nothing about how hard the ride was. Averaging it in
+    would halve the reference and make ordinary pedalling look like work."""
+    powers = [0] * 120 + [150] * 120
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+
+    assert riding_level(series) == 150.0
+
+
+def test_riding_level_is_none_without_any_power_data() -> None:
+    powers: list[int | None] = [None] * 60
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+    assert riding_level(series) is None
+
+
+def test_riding_level_is_none_for_a_ride_spent_entirely_coasting() -> None:
+    series = smooth_power(resample_to_1hz(_records_from_powers([0] * 60)))
+    assert riding_level(series) is None
+
+
+def test_riding_level_rejects_a_series_that_was_never_smoothed() -> None:
+    with pytest.raises(deal.PreContractError):
+        riding_level(resample_to_1hz(_records_from_powers([200] * 60)))
+
+
+@given(power=st.integers(min_value=COASTING_POWER_W + 1, max_value=2000))
+def test_riding_level_stays_above_the_coasting_cutoff(power: int) -> None:
+    series = smooth_power(resample_to_1hz(_records_from_powers([power] * 40)))
+    level = riding_level(series)
+    assert level is not None
+    assert level > COASTING_POWER_W
 
 
 def test_baseline_is_constant_for_constant_power() -> None:

@@ -22,6 +22,22 @@ STANDSTILL_SPEED_THRESHOLD_MS: Final = 0.5
 """Speed at or below this (1.8 km/h) is "near zero" for standstill
 detection — a small allowance for GPS jitter while stationary."""
 
+SMOOTHING_WINDOW_S: Final = 30
+"""Width, in seconds, of the centred rolling mean applied to power before
+any block detection. Raw 1 Hz power swings by a median of ~12 W from one
+second to the next even mid-effort, which makes any threshold on the raw
+signal cross back and forth constantly and shatter one real effort into
+dozens of fragments. Thirty seconds is long enough to remove that chatter
+and short enough to keep the start and end of a real effort within a few
+seconds of their true position."""
+
+COASTING_POWER_W: Final = 20
+"""Power at or below this counts as coasting rather than riding, and is
+left out of the ride's reference level (see
+``preprocessing.riding_level``). A long descent would otherwise drag that
+reference down and make every subsequent stretch of ordinary pedalling
+look like an effort."""
+
 BASELINE_WINDOW_S: Final = 600
 """Width, in seconds, of the centred rolling window used to estimate a
 ride's local baseline power. Long enough to smooth over an interval
