@@ -1,6 +1,6 @@
 """Render the selected day's detail: metrics, recovery, and every workout plot."""
 
-from datetime import date
+from datetime import date, timedelta
 from itertools import pairwise
 from typing import Final, Literal
 
@@ -17,7 +17,9 @@ from errors import AnalysisError
 from intervals import (
     IntervalBlock,
     IntervalSummary,
+    PlanComparison,
     build_interval_blocks,
+    compare_to_plan,
     find_candidates,
     mark_standstill,
     resample_to_1hz,
@@ -317,6 +319,43 @@ def _render_interval_table(blocks: list[IntervalBlock]) -> None:
     )
 
 
+def _format_minutes(duration: timedelta, signed: bool = False) -> str:
+    """Format a duration as minutes with one decimal, optionally signed.
+
+    A signed value is a deviation from the plan, where the sign carries
+    the meaning (short vs. long), so it is always shown.
+    """
+    minutes = duration.total_seconds() / 60
+    return f"{minutes:+.1f} min" if signed else f"{minutes:.1f} min"
+
+
+def _render_plan_comparison(comparison: PlanComparison) -> None:
+    """Render the detected blocks against the plan the athlete entered."""
+    st.markdown("**Soll/Ist-Vergleich**")
+
+    columns = st.columns(2)
+    columns[0].metric(
+        "Wiederholungen",
+        f"{comparison.detected_repetitions} von {comparison.planned_repetitions}",
+    )
+    columns[1].metric(
+        "Ø Abweichung Leistung", f"{comparison.mean_power_deviation_w:+.0f} W"
+    )
+
+    st.dataframe(
+        [
+            {
+                "Wdh.": number,
+                "Dauer": _format_minutes(repetition.duration),
+                "Δ Dauer": _format_minutes(repetition.duration_deviation, signed=True),
+                "Ø Watt": round(repetition.avg_power_w),
+                "Δ Watt": f"{repetition.power_deviation_w:+.0f}",
+            }
+            for number, repetition in enumerate(comparison.repetitions, start=1)
+        ]
+    )
+
+
 def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
     """Compute interval-block detection for one workout and render the result."""
     if not _has_strictly_increasing_timestamps(workout.records):
@@ -340,6 +379,8 @@ def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
     )
     _render_interval_summary(summarize_interval_blocks(blocks))
     _render_interval_table(blocks)
+    if plan is not None:
+        _render_plan_comparison(compare_to_plan(blocks, plan))
 
 
 def _render_intervals(workout: Workout, ftp_watts: int | None) -> None:
