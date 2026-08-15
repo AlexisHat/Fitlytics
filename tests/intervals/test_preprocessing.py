@@ -21,6 +21,7 @@ def _record(
     heart_rate: int | None = None,
     cadence: int | None = None,
     speed_ms: float | None = None,
+    grade_pct: float | None = None,
 ) -> RecordPoint:
     return RecordPoint(
         timestamp=START + timedelta(seconds=offset_s),
@@ -28,6 +29,7 @@ def _record(
         heart_rate=heart_rate,
         cadence=cadence,
         speed_ms=speed_ms,
+        grade_pct=grade_pct,
     )
 
 
@@ -83,6 +85,19 @@ def test_resample_rejects_unordered_records() -> None:
 def test_resample_rejects_duplicate_timestamps() -> None:
     with pytest.raises(deal.PreContractError):
         resample_to_1hz([_record(0), _record(0)])
+
+
+def test_resample_handles_a_value_past_row_100() -> None:
+    """Polars' default schema inference only samples the first 100 rows of a
+    list-of-dicts; a column that is None throughout that sample and only
+    becomes a real float later used to crash the whole DataFrame build."""
+    records = [_record(i, power=100) for i in range(120)] + [
+        _record(120, power=100, grade_pct=41.4)
+    ]
+
+    series = resample_to_1hz(records)
+
+    assert series["power"].to_list()[-1] == 100
 
 
 @given(gap_s=st.integers(min_value=1, max_value=3600))

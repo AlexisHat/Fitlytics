@@ -81,9 +81,14 @@ def resample_to_1hz(records: list[RecordPoint]) -> pl.DataFrame:
     >>> series["power"].to_list()
     [100, None, None, 120]
     """
-    original = pl.DataFrame([record.model_dump() for record in records]).select(
-        "timestamp", *_RESAMPLED_COLUMNS
-    )
+    # infer_schema_length=None scans every row instead of just the first 100
+    # (polars' default) before picking each column's dtype — otherwise a
+    # column that is None in the first 100 records but a real float later
+    # (e.g. grade_pct before the first gradient reading) crashes with
+    # "could not append value ... to the builder" on a long enough ride.
+    original = pl.DataFrame(
+        [record.model_dump() for record in records], infer_schema_length=None
+    ).select("timestamp", *_RESAMPLED_COLUMNS)
     grid = pl.DataFrame(
         {
             "timestamp": pl.datetime_range(
