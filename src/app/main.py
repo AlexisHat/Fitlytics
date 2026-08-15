@@ -26,6 +26,7 @@ from app.data import (
     save_and_load_workouts,
 )
 from app.day_view import WORKOUT_CATEGORY_LABELS, render_day
+from app.recovery_view import render_recovery
 from errors import StorageError
 from models import PlannedIntervalSpec, RecoveryDay, Workout, WorkoutCategory
 from storage import init_db
@@ -33,6 +34,9 @@ from storage.profile import load_profile, save_profile
 from storage.workouts import load_workouts
 
 _DB_PATH: Final = Path("data/private/fitlytics.db")
+
+_TRAINING_PAGE: Final = "Training"
+_RECOVERY_PAGE: Final = "Recovery"
 
 
 def _optional_sidebar_number(
@@ -409,13 +413,8 @@ def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
     )
 
 
-def main() -> None:
-    """Render the Fitlytics Streamlit app."""
-    st.set_page_config(page_title="Fitlytics", layout="wide")
-    st.title("Fitlytics")
-    _render_sidebar()
-    _render_import_log()
-
+def _render_training_page() -> None:
+    """Render the training page: the calendar and the selected day's detail."""
     calendar_days = render_calendar(
         st.session_state.workouts,
         st.session_state.ftp_watts,
@@ -423,6 +422,39 @@ def main() -> None:
         st.session_state.hr_max,
     )
     _render_selected_day(calendar_days)
+
+
+def _select_page() -> str:
+    """Let the user switch between the training and recovery pages.
+
+    Both pages read the same session_state, so the switch only changes
+    what is rendered — uploads and settings in the sidebar stay in place.
+
+    Returns:
+        The chosen page name; the training page if the control was
+        deselected, since a page always has to be showing something.
+    """
+    chosen = st.segmented_control(
+        "Seite",
+        options=[_TRAINING_PAGE, _RECOVERY_PAGE],
+        default=_TRAINING_PAGE,
+        label_visibility="collapsed",
+    )
+    return chosen or _TRAINING_PAGE
+
+
+def main() -> None:
+    """Render the Fitlytics Streamlit app."""
+    st.set_page_config(page_title="Fitlytics", layout="wide")
+    st.title("Fitlytics")
+    _render_sidebar()
+
+    if _select_page() == _RECOVERY_PAGE:
+        render_recovery(st.session_state.recovery_days)
+        return
+
+    _render_import_log()
+    _render_training_page()
 
 
 if __name__ == "__main__":
