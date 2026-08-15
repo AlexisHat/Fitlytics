@@ -69,7 +69,9 @@ def build_interval_block(
 
     Raises:
         deal.PreContractError: If ``candidate`` is not a valid, ordered
-            index pair.
+            index pair, or if the window holds no power reading at all —
+            a detected block always spans more than the smoothing window
+            and so always contains one.
 
     >>> from datetime import UTC, datetime, timedelta
     >>> start = datetime(2026, 1, 1, tzinfo=UTC)
@@ -95,7 +97,12 @@ def build_interval_block(
     start = block["timestamp"][0]
     end = block["timestamp"][-1] + timedelta(seconds=1)
 
-    avg_power = average(block["power"].to_list())
+    # Detection no longer discards a block that overlaps a recording gap —
+    # a dropout of a few seconds is not a reason to throw a real effort
+    # away — so the raw power column may hold nulls inside the block. They
+    # are skipped rather than counted as zero, like the heart rates below.
+    powers = [power for power in block["power"].to_list() if power is not None]
+    avg_power = average(powers)
     mean_power = cast(float, block["power"].mean())
     std_power = block["power"].std()
     evenness = 1 - cast(float, std_power) / mean_power if mean_power else 1.0

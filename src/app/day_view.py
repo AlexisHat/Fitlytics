@@ -15,14 +15,13 @@ from analysis.power_zones import power_zone_distribution
 from analysis.workout import compute_workout_metrics
 from errors import AnalysisError
 from intervals import (
-    DEFAULT_SCALE,
     IntervalBlock,
     IntervalSummary,
     build_interval_blocks,
-    compute_baseline,
     find_candidates,
     mark_standstill,
     resample_to_1hz,
+    smooth_power,
     summarize_interval_blocks,
 )
 from models import RecordPoint, RecoveryDay, Workout, WorkoutCategory
@@ -325,9 +324,9 @@ def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
         return
 
     series = resample_to_1hz(workout.records)
-    series = compute_baseline(series)
+    series = smooth_power(series)
     series = mark_standstill(series)
-    candidates = find_candidates(series, DEFAULT_SCALE)
+    candidates = find_candidates(series)
     if not candidates:
         st.info("Keine Intervalle erkannt.")
         return

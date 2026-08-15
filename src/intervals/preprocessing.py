@@ -8,12 +8,11 @@ row per record" into "one row per second, with recording gaps left as
 explicit nulls" rather than actually changing the sample rate. On top of
 that grid, standstill detection marks stretches where the rider stopped
 (e.g. a red light) while the device kept recording — a different kind of
-hard block boundary than a recording gap — and a rolling quantile estimates
-the ride's local baseline power that later steps compare against.
+hard block boundary than a recording gap.
 
 Detection itself works on a smoothed copy of the power signal rather than
-the raw one, measured against a single ride-global reference level; see
-:func:`smooth_power` and :func:`riding_level`.
+the raw one, measured against a threshold derived from the ride's own power
+distribution; see :func:`smooth_power` and :func:`effort_threshold`.
 """
 
 from datetime import timedelta
@@ -24,9 +23,8 @@ import deal
 import polars as pl
 
 from intervals.config import (
-    BASELINE_QUANTILE,
-    BASELINE_WINDOW_S,
     COASTING_POWER_W,
+    OTSU_BINS,
     SMOOTHING_WINDOW_S,
     STANDSTILL_MIN_DURATION,
     STANDSTILL_POWER_THRESHOLD_W,
@@ -267,23 +265,43 @@ def smooth_power(series: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _power_histogram(values: list[float], lowest: float, width: float) -> list[int]:
+    """Count how many values fall into each of ``OTSU_BINS`` equal bins.
+
+    >>> _power_histogram([100.0, 100.0, 300.0], 100.0, 100.0)[:3]
+    [2, 0, 1]
+    """
+    counts = [0] * OTSU_BINS
+    for value in values:
+        index = min(int((value - lowest) / width), OTSU_BINS - 1)
+        counts[index] += 1
+    return counts
+
+
 @deal.pre(lambda series: len(series) > 0)
 @deal.pre(lambda series: "smoothed_power" in series.columns)
 @deal.ensure(lambda _: _.result is None or _.result > COASTING_POWER_W)
-def riding_level(series: pl.DataFrame) -> float | None:
-    """Estimate the power level a ride was generally ridden at.
+def effort_threshold(series: pl.DataFrame) -> float | None:
+    """Find the power that best separates a ride's easy seconds from its hard ones.
 
-    Interval detection needs a reference to call a stretch "hard", and
-    that reference has to come from the ride itself — an athlete's easy
-    pace is another's threshold. A single ride-global number is used
-    deliberately rather than a local rolling one: inside a long effort a
-    rolling window consists mostly of the effort itself, so the reference
-    rises along with the very thing it is supposed to measure against and
-    eats the block from within (see ``docs/entscheidungen.md``).
+    Interval detection needs a reference to call a stretch "hard", and that
+    reference has to come from the ride itself — one athlete's easy pace is
+    another's threshold. Rather than fixing a level and a factor, this splits
+    the ride's own power readings into two classes and returns the boundary
+    that separates them best, in the sense of Otsu's method: the cut that
+    maximises the variance *between* the two classes.
 
-    Coasting is excluded because a long descent is not a statement about
-    how hard the ride was; leaving it in would drag the reference down
-    until ordinary pedalling afterwards looked like an effort.
+    Two earlier references were tried and discarded (see
+    ``docs/entscheidungen.md``). A local rolling quantile rises along with
+    the very effort it is supposed to measure against and ends a long block
+    from within. A ride-global median fails whenever the intervals make up
+    more than half the ride — a 5x4min session sits above its own median,
+    so nothing clears the threshold at all. A two-class split has neither
+    problem, because it is driven by the gap between the classes rather
+    than by how much time is spent in either.
+
+    Coasting is excluded first: a long descent says nothing about how hard
+    the ride was, and leaving it in creates a spurious third class.
 
     Args:
         series: A 1 Hz-gridded time series with a ``smoothed_power``
@@ -291,87 +309,53 @@ def riding_level(series: pl.DataFrame) -> float | None:
             empty.
 
     Returns:
-        The median smoothed power over the seconds spent actually
-        pedalling (above ``COASTING_POWER_W``), in watts, or None if the
-        ride has no such second at all — a workout recorded without a
-        power meter, or one spent entirely coasting.
+        The separating power in watts, strictly above
+        ``COASTING_POWER_W``, or None if the ride has no pedalling second
+        at all (no power meter, or spent entirely coasting) or holds its
+        power perfectly constant, leaving nothing to separate.
 
     Raises:
         deal.PreContractError: If ``series`` is empty or has no
             ``smoothed_power`` column.
 
-    >>> from datetime import UTC, datetime
+    >>> from datetime import UTC, datetime, timedelta
+    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
     >>> records = [
-    ...     RecordPoint(
-    ...         timestamp=datetime(2026, 7, 16, 14, 0, i, tzinfo=UTC), power=150
-    ...     )
-    ...     for i in range(5)
+    ...     RecordPoint(timestamp=start + timedelta(seconds=i), power=p)
+    ...     for i, p in enumerate([100] * 120 + [300] * 120)
     ... ]
-    >>> riding_level(smooth_power(resample_to_1hz(records)))
-    150.0
+    >>> threshold = effort_threshold(smooth_power(resample_to_1hz(records)))
+    >>> 100 < threshold < 300
+    True
     """
     smoothed = series["smoothed_power"].drop_nulls()
     pedalling = smoothed.filter(smoothed > COASTING_POWER_W)
     if pedalling.len() == 0:
         return None
-    return float(cast(float, pedalling.median()))
+    lowest = cast(float, pedalling.min())
+    highest = cast(float, pedalling.max())
+    if highest <= lowest:
+        return None
 
+    width = (highest - lowest) / OTSU_BINS
+    counts = _power_histogram(pedalling.to_list(), lowest, width)
+    centre = [lowest + (index + 0.5) * width for index in range(OTSU_BINS)]
+    total_count = pedalling.len()
+    total_weighted = sum(count * mid for count, mid in zip(counts, centre, strict=True))
 
-@deal.pre(lambda series: len(series) > 0)
-@deal.pre(lambda series: is_1hz_spaced(series))
-@deal.ensure(
-    lambda _: (
-        _.series["power"].min() is None
-        or _.result["baseline_power"]
-        .drop_nulls()
-        .is_between(_.series["power"].min(), _.series["power"].max())
-        .all()
-    )
-)
-def compute_baseline(series: pl.DataFrame) -> pl.DataFrame:
-    """Estimate a ride's local baseline power with a centred rolling quantile.
-
-    A long window (``BASELINE_WINDOW_S``, a ten-minute default) smooths over
-    individual interval repetitions while still tracking a ride whose base
-    intensity drifts over its duration — a warm-up followed by a climb has a
-    different baseline for each part, which a single global median would
-    blur together. A low quantile (``BASELINE_QUANTILE``) rather than the
-    median: a repeated-interval session can spend more than half of any
-    600 s window actually working, so the median would often sit at or near
-    the block's own power instead of the recovery level baseline is meant
-    to represent. The window shrinks at both ends of the ride rather than
-    padding with invented values, so the first and last seconds still get a
-    baseline computed from the samples actually available there.
-
-    Args:
-        series: A 1 Hz-gridded time series, as returned by
-            :func:`resample_to_1hz`; must not be empty.
-
-    Returns:
-        ``series`` with an added ``baseline_power`` column: the centred
-        rolling ``BASELINE_QUANTILE`` of ``power``, in watts. Null power
-        readings (a gap, or no power meter at all) are skipped rather than
-        treated as zero; a second with no non-null power within its window
-        is null.
-
-    Raises:
-        deal.PreContractError: If ``series`` is empty or not spaced exactly
-            one second apart.
-
-    >>> from datetime import UTC, datetime
-    >>> records = [
-    ...     RecordPoint(timestamp=datetime(2026, 7, 16, 14, 0, i, tzinfo=UTC), power=p)
-    ...     for i, p in enumerate([100, 100, 100, 400, 100, 100, 100])
-    ... ]
-    >>> series = compute_baseline(resample_to_1hz(records))
-    >>> series["baseline_power"].to_list()
-    [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
-    """
-    return series.with_columns(
-        pl.col("power")
-        .cast(pl.Float64)
-        .rolling_quantile(
-            BASELINE_QUANTILE, window_size=BASELINE_WINDOW_S, center=True, min_samples=1
-        )
-        .alias("baseline_power")
-    )
+    best_boundary, best_variance = 1, -1.0
+    below_count, below_weighted = 0, 0.0
+    for boundary in range(1, OTSU_BINS):
+        below_count += counts[boundary - 1]
+        below_weighted += counts[boundary - 1] * centre[boundary - 1]
+        above_count = total_count - below_count
+        if below_count == 0 or above_count == 0:
+            continue
+        below_mean = below_weighted / below_count
+        above_mean = (total_weighted - below_weighted) / above_count
+        # Between-class variance, without the constant 1/total_count**2 that
+        # would scale every candidate equally and change no comparison.
+        variance = below_count * above_count * (below_mean - above_mean) ** 2
+        if variance > best_variance:
+            best_boundary, best_variance = boundary, variance
+    return lowest + best_boundary * width

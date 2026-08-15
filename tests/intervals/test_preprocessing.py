@@ -11,10 +11,9 @@ from hypothesis import strategies as st
 
 from intervals.config import COASTING_POWER_W
 from intervals.preprocessing import (
-    compute_baseline,
+    effort_threshold,
     mark_standstill,
     resample_to_1hz,
-    riding_level,
     smooth_power,
 )
 from models import RecordPoint
@@ -205,78 +204,71 @@ def test_smooth_power_of_constant_power_is_that_power(power: int) -> None:
     assert series["smoothed_power"].to_list() == [float(power)] * 40
 
 
-def test_riding_level_of_constant_power_is_that_power() -> None:
-    series = smooth_power(resample_to_1hz(_records_from_powers([180] * 60)))
-    assert riding_level(series) == 180.0
-
-
-def test_riding_level_ignores_a_long_coasting_stretch() -> None:
-    """A descent says nothing about how hard the ride was. Averaging it in
-    would halve the reference and make ordinary pedalling look like work."""
-    powers = [0] * 120 + [150] * 120
+def test_effort_threshold_separates_two_clear_levels() -> None:
+    powers = [100] * 120 + [300] * 120
     series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+    threshold = effort_threshold(series)
 
-    assert riding_level(series) == 150.0
+    assert threshold is not None
+    assert 100 < threshold < 300
 
 
-def test_riding_level_is_none_without_any_power_data() -> None:
+def test_effort_threshold_works_when_the_effort_dominates_the_ride() -> None:
+    """The reason a ride-global median was rejected: a session that spends
+    most of its time working sits above its own median, so a median-derived
+    threshold clears nothing at all and detection finds zero blocks."""
+    powers = [100] * 60 + [250] * 300
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+    threshold = effort_threshold(series)
+
+    assert threshold is not None
+    assert 100 < threshold < 250
+
+
+def test_effort_threshold_ignores_a_long_coasting_stretch() -> None:
+    """Coasting is not a third class to split against; without excluding it
+    the cut lands between "rolling" and "pedalling" instead of between
+    "easy" and "hard"."""
+    powers = [0] * 200 + [150] * 120 + [300] * 120
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+    threshold = effort_threshold(series)
+
+    assert threshold is not None
+    assert 150 < threshold < 300
+
+
+def test_effort_threshold_is_none_without_any_power_data() -> None:
     powers: list[int | None] = [None] * 60
     series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
-    assert riding_level(series) is None
+    assert effort_threshold(series) is None
 
 
-def test_riding_level_is_none_for_a_ride_spent_entirely_coasting() -> None:
+def test_effort_threshold_is_none_for_a_ride_spent_entirely_coasting() -> None:
     series = smooth_power(resample_to_1hz(_records_from_powers([0] * 60)))
-    assert riding_level(series) is None
+    assert effort_threshold(series) is None
 
 
-def test_riding_level_rejects_a_series_that_was_never_smoothed() -> None:
+def test_effort_threshold_is_none_for_perfectly_constant_power() -> None:
+    """Nothing to separate: a ride held at one power has no hard class."""
+    series = smooth_power(resample_to_1hz(_records_from_powers([180] * 60)))
+    assert effort_threshold(series) is None
+
+
+def test_effort_threshold_rejects_a_series_that_was_never_smoothed() -> None:
     with pytest.raises(deal.PreContractError):
-        riding_level(resample_to_1hz(_records_from_powers([200] * 60)))
+        effort_threshold(resample_to_1hz(_records_from_powers([200] * 60)))
 
 
-@given(power=st.integers(min_value=COASTING_POWER_W + 1, max_value=2000))
-def test_riding_level_stays_above_the_coasting_cutoff(power: int) -> None:
-    series = smooth_power(resample_to_1hz(_records_from_powers([power] * 40)))
-    level = riding_level(series)
-    assert level is not None
-    assert level > COASTING_POWER_W
+@given(
+    easy=st.integers(min_value=COASTING_POWER_W + 1, max_value=200),
+    step=st.integers(min_value=50, max_value=400),
+)
+def test_effort_threshold_lies_between_the_two_levels_it_separates(
+    easy: int, step: int
+) -> None:
+    powers = [easy] * 120 + [easy + step] * 120
+    series = smooth_power(resample_to_1hz(_records_from_powers(powers)))
+    threshold = effort_threshold(series)
 
-
-def test_baseline_is_constant_for_constant_power() -> None:
-    series = compute_baseline(resample_to_1hz(_records_from_powers([150] * 30)))
-    assert series["baseline_power"].to_list() == [150.0] * 30
-
-
-def test_baseline_tracks_local_drift_not_a_single_global_median() -> None:
-    powers = [100] * 700 + [300] * 700
-    series = compute_baseline(resample_to_1hz(_records_from_powers(powers)))
-    baseline = series["baseline_power"].to_list()
-    assert baseline[350] == 100.0
-    assert baseline[1050] == 300.0
-
-
-def test_baseline_skips_null_power_within_the_window() -> None:
-    powers: list[int | None] = [100] * 10 + [None] * 5 + [100] * 10
-    series = compute_baseline(resample_to_1hz(_records_from_powers(powers)))
-    assert series["baseline_power"].to_list() == [100.0] * 25
-
-
-def test_baseline_is_null_without_any_power_data() -> None:
-    powers: list[int | None] = [None] * 30
-    series = compute_baseline(resample_to_1hz(_records_from_powers(powers)))
-    assert series["baseline_power"].null_count() == 30
-
-
-def test_baseline_rejects_empty_series() -> None:
-    empty = resample_to_1hz(_records_from_powers([200])).filter(pl.col("power") > 1000)
-    with pytest.raises(deal.PreContractError):
-        compute_baseline(empty)
-
-
-def test_baseline_rejects_irregularly_spaced_series() -> None:
-    series = resample_to_1hz(_records_from_powers([200] * 10)).filter(
-        pl.col("timestamp") != START + timedelta(seconds=3)
-    )
-    with pytest.raises(deal.PreContractError):
-        compute_baseline(series)
+    assert threshold is not None
+    assert easy < threshold < easy + step

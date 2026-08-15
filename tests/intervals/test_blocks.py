@@ -1,6 +1,7 @@
 """Tests for intervals.blocks."""
 
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import deal
@@ -20,7 +21,7 @@ START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _series(
-    powers: list[int], heart_rates: list[int | None] | None = None
+    powers: Sequence[int | None], heart_rates: list[int | None] | None = None
 ) -> pl.DataFrame:
     heart_rates = heart_rates if heart_rates is not None else [None] * len(powers)
     return pl.DataFrame(
@@ -35,6 +36,17 @@ def _series(
 def test_build_interval_block_computes_average_power() -> None:
     series = _series([200, 220, 240, 260])
     block = build_interval_block(series, (0, 4))
+    assert block.avg_power_w == 230.0
+
+
+def test_build_interval_block_skips_a_recording_gap_inside_the_block() -> None:
+    """Detection no longer throws away a block that overlaps a dropout, so
+    a block can carry null power seconds. They must be skipped, not summed
+    as zero — averaging them in would understate the effort."""
+    powers: list[int | None] = [200, None, None, 260]
+
+    block = build_interval_block(_series(powers), (0, 4))
+
     assert block.avg_power_w == 230.0
 
 

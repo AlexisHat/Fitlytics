@@ -1,11 +1,11 @@
-"""Single-scale candidate search: a hysteresis threshold on raw power.
+"""Candidate search: one threshold on the smoothed power signal.
 
-A stretch counts as a candidate block once power rises far enough above
-the local baseline ("entered") and keeps counting until it drops back
-close to baseline again ("exited") — the same idea as
-:func:`~intervals.preprocessing.mark_standstill`, just for "clearly above
-baseline" instead of "near zero". Using two thresholds instead of one
-means a brief dip inside a block doesn't immediately end it.
+A stretch counts as a candidate block for as long as smoothed power stays
+above a threshold derived from the ride's own reference level. The earlier
+implementation needed two thresholds (a higher one to enter a block, a
+lower one to stay in it) because it ran on raw 1 Hz power, which crosses
+any single threshold constantly. Smoothing removes that chatter upstream,
+so one threshold is enough here.
 """
 
 from itertools import pairwise
@@ -13,12 +13,6 @@ from itertools import pairwise
 import deal
 import polars as pl
 
-from intervals.config import (
-    HYSTERESIS_ENTRY_FRACTION,
-    HYSTERESIS_EXIT_FRACTION,
-    HYSTERESIS_MARGIN_W,
-    Scale,
-)
 from intervals.preprocessing import is_1hz_spaced
 
 
@@ -41,33 +35,34 @@ def _true_runs(flags: list[bool]) -> list[tuple[int, int]]:
     return runs
 
 
-@deal.pre(lambda series, scale: len(series) > 0)
-@deal.pre(lambda series, scale: is_1hz_spaced(series))
+@deal.pre(lambda series, threshold_w: len(series) > 0)
+@deal.pre(lambda series, threshold_w: is_1hz_spaced(series))
+@deal.pre(lambda series, threshold_w: threshold_w > 0)
 @deal.ensure(lambda _: all(start < end for start, end in _.result))
 @deal.ensure(lambda _: all(a[1] <= b[0] for a, b in pairwise(_.result)))
 def find_threshold_candidates(
-    series: pl.DataFrame, scale: Scale
+    series: pl.DataFrame, threshold_w: float
 ) -> list[tuple[int, int]]:
-    """Find candidate block windows by hysteresis over raw power.
+    """Find candidate block windows as the runs above a power threshold.
 
     Args:
-        series: A 1 Hz-gridded time series with ``power`` and
-            ``baseline_power`` columns, as returned by
-            :func:`~intervals.preprocessing.resample_to_1hz` and
-            :func:`~intervals.preprocessing.compute_baseline`; must not be
+        series: A 1 Hz-gridded time series with a ``smoothed_power``
+            column, as returned by
+            :func:`~intervals.preprocessing.smooth_power`; must not be
             empty.
-        scale: The time scale's tuning parameters (unused by the threshold
-            itself, kept for a uniform per-scale call signature).
+        threshold_w: The power, in watts, a second must reach to count as
+            part of an effort; must be positive.
 
     Returns:
         Candidate windows as ``(start_index, end_index)`` row-index pairs
         into ``series``, chronologically sorted and non-overlapping. A row
-        with no power or baseline reading (a gap) can never be "in" a
+        with no smoothed power (a recording gap long enough that its whole
+        window is empty, or a ride with no power meter) can never be "in" a
         block and ends one already open.
 
     Raises:
-        deal.PreContractError: If ``series`` is empty or not spaced exactly
-            one second apart.
+        deal.PreContractError: If ``series`` is empty, not spaced exactly
+            one second apart, or ``threshold_w`` is not positive.
 
     >>> from datetime import UTC, datetime, timedelta
     >>> import polars as pl
@@ -75,28 +70,14 @@ def find_threshold_candidates(
     >>> series = pl.DataFrame(
     ...     {
     ...         "timestamp": [start + timedelta(seconds=i) for i in range(20)],
-    ...         "power": [100.0] * 5 + [250.0] * 10 + [100.0] * 5,
-    ...         "baseline_power": [100.0] * 20,
+    ...         "smoothed_power": [100.0] * 5 + [250.0] * 10 + [100.0] * 5,
     ...     }
     ... )
-    >>> from intervals.config import DEFAULT_SCALE
-    >>> find_threshold_candidates(series, DEFAULT_SCALE)
+    >>> find_threshold_candidates(series, 200.0)
     [(5, 15)]
     """
-    in_block = False
-    flags: list[bool] = []
-    for power, baseline in zip(
-        series["power"].to_list(), series["baseline_power"].to_list(), strict=True
-    ):
-        if power is None or baseline is None:
-            in_block = False
-        elif in_block:
-            in_block = power >= baseline * (1 + HYSTERESIS_EXIT_FRACTION) + (
-                HYSTERESIS_MARGIN_W
-            )
-        else:
-            in_block = power >= baseline * (1 + HYSTERESIS_ENTRY_FRACTION) + (
-                HYSTERESIS_MARGIN_W
-            )
-        flags.append(in_block)
+    flags = [
+        power is not None and power >= threshold_w
+        for power in series["smoothed_power"].to_list()
+    ]
     return _true_runs(flags)

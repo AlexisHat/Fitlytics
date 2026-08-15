@@ -7,36 +7,31 @@ from intervals.blocks import (
     build_interval_blocks,
     summarize_interval_blocks,
 )
-from intervals.config import DEFAULT_SCALE, Scale
 from intervals.evaluation import Interval, IntervalEvaluation, evaluate, iou
-from intervals.filtering import find_candidates
 from intervals.preprocessing import (
-    compute_baseline,
+    effort_threshold,
     mark_standstill,
     resample_to_1hz,
-    riding_level,
     smooth_power,
 )
+from intervals.selection import find_candidates
 from intervals.synthetic import RideSegment, build_ride
 
 __all__ = [
-    "DEFAULT_SCALE",
     "Interval",
     "IntervalBlock",
     "IntervalEvaluation",
     "IntervalSummary",
     "RideSegment",
-    "Scale",
     "build_interval_block",
     "build_interval_blocks",
     "build_ride",
-    "compute_baseline",
+    "effort_threshold",
     "evaluate",
     "find_candidates",
     "iou",
     "mark_standstill",
     "resample_to_1hz",
-    "riding_level",
     "smooth_power",
     "summarize_interval_blocks",
 ]
