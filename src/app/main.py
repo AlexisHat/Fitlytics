@@ -1,10 +1,10 @@
 """Streamlit entry point: sidebar data upload and session-wide settings.
 
-Run with ``uv run streamlit run src/app/main.py``. Uploaded workouts and the
-FTP/heart-rate profile are saved to a local SQLite database (see
-``storage``) and reloaded on every run, so they stay available without
-re-entering them in a later session. Recovery days and interval results are
-not persisted (see ``docs/entscheidungen.md``, Meilenstein 10).
+Run with ``uv run streamlit run src/app/main.py``. Uploaded workouts,
+recovery days and the FTP/heart-rate profile are saved to a local SQLite
+database (see ``storage``) and reloaded on every run, so they stay available
+without re-entering them in a later session. Interval results are not
+persisted — they are derived from the records and recomputed on demand.
 """
 
 from collections.abc import Sequence
@@ -22,11 +22,12 @@ from app.data import (
     WorkoutUploadDetails,
     import_recovery_days,
     import_workouts,
+    save_and_load_recovery_days,
     save_and_load_workouts,
 )
 from app.day_view import WORKOUT_CATEGORY_LABELS, render_day
 from errors import StorageError
-from models import PlannedIntervalSpec, Workout, WorkoutCategory
+from models import PlannedIntervalSpec, RecoveryDay, Workout, WorkoutCategory
 from storage import init_db
 from storage.profile import load_profile, save_profile
 from storage.workouts import load_workouts
@@ -107,6 +108,36 @@ def _load_stored_workouts() -> list[Workout]:
     except (StorageError, OSError) as exc:
         st.error(f"Gespeicherte Workouts konnten nicht geladen werden: {exc}")
         return []
+
+
+def _store_recovery_days(days: list[RecoveryDay]) -> list[RecoveryDay]:
+    """Persist this upload's recovery days and return every stored one.
+
+    Saved without a confirmation step, unlike a workout: a Whoop export
+    carries no free-text fields for the athlete to fill in, and an upload
+    replaces the days it covers rather than adding to them, so there is
+    nothing an early save could get wrong.
+
+    Falls back to just this upload's days, with an error shown, if the
+    database is unavailable.
+
+    Args:
+        days: This upload's recovery days, empty if nothing was uploaded.
+
+    Returns:
+        Every stored recovery day, or just ``days`` if the database is
+        unavailable.
+    """
+    try:
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = init_db(_DB_PATH)
+        try:
+            return save_and_load_recovery_days(conn, days)
+        finally:
+            conn.close()
+    except (StorageError, OSError) as exc:
+        st.error(f"Recovery-Daten konnten nicht gespeichert werden: {exc}")
+        return days
 
 
 def _save_workouts(
@@ -297,7 +328,8 @@ def _render_sidebar() -> None:
                 st.rerun()
 
     csv_file = st.sidebar.file_uploader("Whoop-CSV (Recovery)", type="csv")
-    recovery_days, _, recovery_failure = import_recovery_days(csv_file)
+    uploaded_recovery, _, recovery_failure = import_recovery_days(csv_file)
+    recovery_days = _store_recovery_days(uploaded_recovery)
 
     st.session_state.workouts = workouts
     st.session_state.workout_imports = workout_imports

@@ -1,10 +1,11 @@
 """SQLite schema and database initialization for local workout storage.
 
-Three tables: ``workouts`` and, in a one-to-many relationship, their
-``records``, mirroring ``Workout``/``RecordPoint`` field for field; and
-``athlete_profile``, a single settings row for the FTP/heart-rate profile
-entered in the sidebar. Recovery days and interval results are deliberately
-not persisted here — see ``docs/entscheidungen.md`` (Meilenstein 10).
+Four tables: ``workouts`` and, in a one-to-many relationship, their
+``records``, mirroring ``Workout``/``RecordPoint`` field for field;
+``recovery_days``, one row per Whoop cycle; and ``athlete_profile``, a
+single settings row for the FTP/heart-rate profile entered in the sidebar.
+Interval results are deliberately not persisted — they are derived from the
+records and recomputed on demand, see ``docs/entscheidungen.md``.
 """
 
 import sqlite3
@@ -75,6 +76,23 @@ CREATE TABLE IF NOT EXISTS records (
 )
 """
 
+_CREATE_RECOVERY_DAYS_TABLE = """
+CREATE TABLE IF NOT EXISTS recovery_days (
+    date TEXT PRIMARY KEY,
+    cycle_start TEXT NOT NULL,
+    recovery_score INTEGER,
+    resting_hr INTEGER,
+    hrv_ms REAL,
+    skin_temp_c REAL,
+    respiratory_rate REAL,
+    blood_oxygen REAL
+)
+"""
+"""``date`` (local calendar day, ISO 8601) is the primary key rather than a
+surrogate id: Whoop reports exactly one cycle per day, and an export always
+contains the full history, so re-importing must update a day rather than
+append a second copy of it."""
+
 _CREATE_ATHLETE_PROFILE_TABLE = """
 CREATE TABLE IF NOT EXISTS athlete_profile (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -125,6 +143,7 @@ def init_db(path: str | Path) -> sqlite3.Connection:
         with conn:
             conn.execute(_CREATE_WORKOUTS_TABLE)
             conn.execute(_CREATE_RECORDS_TABLE)
+            conn.execute(_CREATE_RECOVERY_DAYS_TABLE)
             conn.execute(_CREATE_ATHLETE_PROFILE_TABLE)
             _ensure_workouts_columns(conn)
         return conn

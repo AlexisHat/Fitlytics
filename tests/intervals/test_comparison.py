@@ -7,6 +7,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from analysis.metrics import _is_between
 from intervals.blocks import IntervalBlock
 from intervals.comparison import compare_to_plan
 from models import PlannedIntervalSpec
@@ -112,9 +113,15 @@ def test_compare_rejects_an_empty_block_list() -> None:
 def test_mean_power_deviation_lies_between_the_smallest_and_largest(
     powers: list[float], target: int
 ) -> None:
+    """Bounds hold up to floating-point rounding, not exactly: the mean of
+    several identical values can land one ULP below them, because summing
+    and dividing does not reproduce the value itself bit for bit. Checked
+    with the same helper that ``average``'s own postcondition uses."""
     blocks = [_block(4, power) for power in powers]
 
     comparison = compare_to_plan(blocks, _plan(target_power_w=target))
 
     deviations = [repetition.power_deviation_w for repetition in comparison.repetitions]
-    assert min(deviations) <= comparison.mean_power_deviation_w <= max(deviations)
+    assert _is_between(
+        comparison.mean_power_deviation_w, min(deviations), max(deviations)
+    )

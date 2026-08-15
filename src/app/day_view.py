@@ -383,13 +383,45 @@ def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
         _render_plan_comparison(compare_to_plan(blocks, plan))
 
 
+def _offers_interval_analysis(workout: Workout) -> bool:
+    """Whether interval analysis is offered for this workout at all.
+
+    Only for a session the athlete tagged as intervals. Detection answers
+    "which stretches were the hardest", and every ride has some answer to
+    that — on an endurance ride it is the climbs, which is true but not
+    what the analysis is for. Tying the button to the category keeps the
+    feature from making claims the athlete never asked about (see
+    ``docs/entscheidungen.md``).
+
+    Args:
+        workout: The workout being shown.
+
+    Returns:
+        True if the workout is tagged as an interval session.
+
+    >>> from datetime import UTC, datetime
+    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+    >>> records = [RecordPoint(timestamp=start, power=200)]
+    >>> ride = Workout(start_time=start, sport="cycling", records=records)
+    >>> _offers_interval_analysis(ride)
+    False
+    >>> session = ride.model_copy(update={"category": WorkoutCategory.INTERVALLE})
+    >>> _offers_interval_analysis(session)
+    True
+    """
+    return workout.category is WorkoutCategory.INTERVALLE
+
+
 def _render_intervals(workout: Workout, ftp_watts: int | None) -> None:
     """Run interval-block detection on demand, behind a per-workout button.
 
-    Detection isn't run automatically on every visit: it's a distinct
-    computation the user explicitly triggers, not part of the day's
-    baseline view.
+    Offered only where :func:`_offers_interval_analysis` allows it, and
+    not run automatically even there: it's a distinct computation the user
+    explicitly triggers, not part of the day's baseline view.
     """
+    if not _offers_interval_analysis(workout):
+        return
+
     state_key = f"interval_analysis_active_{workout.start_time.isoformat()}"
     button_key = f"interval_button_{workout.start_time.isoformat()}"
     if st.button("Intervallanalyse starten", key=button_key):

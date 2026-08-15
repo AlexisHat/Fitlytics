@@ -7,6 +7,7 @@ from app.data import (
     WorkoutUploadDetails,
     import_recovery_days,
     import_workouts,
+    save_and_load_recovery_days,
     save_and_load_workouts,
 )
 from models import PlannedIntervalSpec, WorkoutCategory
@@ -186,3 +187,35 @@ def test_save_and_load_workouts_returns_earlier_saves_without_new_uploads() -> N
 
     assert len(loaded) == 1
     assert duplicates == []
+
+
+def test_save_and_load_recovery_days_roundtrips_an_upload() -> None:
+    conn = init_db(":memory:")
+    days, _, _ = import_recovery_days(VALID_CSV)
+
+    stored = save_and_load_recovery_days(conn, days)
+
+    assert len(stored) == len(days)
+    assert stored[0].date == min(day.date for day in days)
+
+
+def test_save_and_load_recovery_days_replaces_a_reuploaded_export() -> None:
+    """Unlike a workout, a re-uploaded Whoop export must not be skipped: it
+    is the full history and may carry revised scores."""
+    conn = init_db(":memory:")
+    days, _, _ = import_recovery_days(VALID_CSV)
+    save_and_load_recovery_days(conn, days)
+
+    stored_again = save_and_load_recovery_days(conn, days)
+
+    assert len(stored_again) == len(days)
+
+
+def test_save_and_load_recovery_days_returns_earlier_uploads() -> None:
+    """A fresh session with nothing uploaded must still see what was saved
+    before — the point of persisting them at all."""
+    conn = init_db(":memory:")
+    days, _, _ = import_recovery_days(VALID_CSV)
+    save_and_load_recovery_days(conn, days)
+
+    assert len(save_and_load_recovery_days(conn, [])) == len(days)

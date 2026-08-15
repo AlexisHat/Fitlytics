@@ -14,6 +14,7 @@ from errors import DataValidationError, FileImportError
 from models import PlannedIntervalSpec, RecoveryDay, Workout, WorkoutCategory
 from readers.fit import import_fit_file
 from readers.whoop import import_whoop_csv
+from storage.recovery import load_recovery_days, save_recovery_days
 from storage.workouts import load_workouts, save_workout
 from validation.recovery import validate_recovery_days
 from validation.report import ValidationReport
@@ -145,6 +146,32 @@ def save_and_load_workouts(
         if not save_workout(conn, imported.workout)
     ]
     return load_workouts(conn), duplicates
+
+
+def save_and_load_recovery_days(
+    conn: sqlite3.Connection, days: list[RecoveryDay]
+) -> list[RecoveryDay]:
+    """Persist this upload's recovery days and return every stored one.
+
+    A Whoop export always carries the athlete's full history, so an upload
+    replaces the days it covers rather than being skipped as a duplicate —
+    the opposite of :func:`save_and_load_workouts`, where a re-uploaded FIT
+    file is a no-op. See ``docs/entscheidungen.md``.
+
+    Args:
+        conn: An open connection with the schema already created (see
+            :func:`storage.schema.init_db`).
+        days: This upload's recovery days. May be empty, which stores
+            nothing and simply returns what was already saved.
+
+    Returns:
+        Every stored recovery day, sorted by date.
+
+    Raises:
+        StorageError: If saving or loading fails.
+    """
+    save_recovery_days(conn, days)
+    return load_recovery_days(conn)
 
 
 def import_recovery_days(
