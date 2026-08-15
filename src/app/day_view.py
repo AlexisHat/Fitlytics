@@ -33,7 +33,7 @@ from plots import (
     build_time_series,
     build_timeline_figure,
     plot_heart_rate_zones,
-    plot_interval_blocks,
+    plot_power_with_intervals,
     plot_power_zones,
 )
 
@@ -332,7 +332,12 @@ def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
         return
 
     blocks = build_interval_blocks(series, candidates, ftp_watts)
-    st.pyplot(plot_interval_blocks(blocks))
+    plan = workout.planned_intervals
+    st.pyplot(
+        plot_power_with_intervals(
+            series, blocks, plan.target_power_w if plan is not None else None
+        )
+    )
     _render_interval_summary(summarize_interval_blocks(blocks))
     _render_interval_table(blocks)
 
