@@ -9,6 +9,7 @@ from plots.gps_map import (
     build_gps_map_figure,
 )
 from plots.interval_chart import plot_power_with_intervals
+from plots.interval_detail import plot_interval_detail
 from plots.series import available_channels, build_time_series
 from plots.timeline import XAxisMode, build_timeline_figure
 from plots.zones import POWER_ZONE_MODEL_LABELS, plot_heart_rate_zones, plot_power_zones
@@ -26,6 +27,7 @@ __all__ = [
     "build_time_series",
     "build_timeline_figure",
     "plot_heart_rate_zones",
+    "plot_interval_detail",
     "plot_power_with_intervals",
     "plot_power_zones",
 ]
