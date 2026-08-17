@@ -297,17 +297,19 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 ---
 
-### Vier Diagramme aus der Projektskizze: zwei abgedeckt, zwei bewusst zurückgestellt
+### Vier Diagramme aus der Projektskizze: drei abgedeckt, eines bewusst verworfen
 
-**Entscheidung:** "Herzfrequenzverlauf einer Einheit" (Projektskizze) ist durch den Timeline-Plot abgedeckt, "Trainingsdauer pro Einheit" durch die Kennzahlen-Kachel in der Tagesansicht. HRV-Verlauf über mehrere Tage und Vergleich Trainingsbelastung/Recovery werden vorerst nicht gebaut, obwohl sie laut Projektskizze zu "Das Wesentliche" gehören, nicht zu Nice-to-have.
+**Entscheidung:** "Herzfrequenzverlauf einer Einheit" ist durch den Timeline-Plot abgedeckt, "Trainingsdauer pro Einheit" durch die Kennzahlen-Kachel in der Tagesansicht, "HRV-Verlauf über mehrere Tage" durch den Recovery-Trend auf der neuen Recovery-Seite. Der vierte Punkt, "Vergleich Trainingsbelastung/Recovery", wurde prototypisch gebaut (Balken der Tagesbelastung gegen die Recovery-Quote des Folgetags, zeitlich versetzt gepaart über `analysis.load_recovery`) und danach wieder verworfen.
 
-**Begründung:** Bewusste Priorisierung, Risiko akzeptiert. Ggf. vor Abgabe nachholen oder im Bericht als Abweichung begründen.
+**Begründung:** Der Prototyp lief fehlerfrei und war technisch korrekt — Belastung an Tag D wurde bewusst gegen die Recovery-Quote von Tag D+1 gestellt, da ein Whoop-Zyklus Schlaf plus Folgetag ist und der Score vor dem Tag feststeht (siehe „Whoop-Tagesbezug: Mittag-zu-Mittag"). Im Praxistest gegen echte Daten bot das Diagramm aber keinen erkennbaren Mehrwert für das Training: bei wenigen Trainingstagen im Verhältnis zu einem Jahr Recovery-Daten bestand die Ansicht überwiegend aus leeren Tagen, und selbst mit mehr Trainingsdaten liefert ein einzelner Balken/Punkt pro Tag keine Aussage, die nicht schon aus der bestehenden Recovery-Übersicht und dem Trainingskalender nebeneinander ablesbar wäre. Eine Umsetzung nur, weil sie in der Projektskizze steht, ohne dass sie dem Training etwas nützt, widerspräche dem Grundsatz "lieber weniger Umfang als ein unfertiges oder wertloses Feature" (CLAUDE.md §1, §7). Die Abweichung von der Minimalanforderung wird hier bewusst in Kauf genommen und im Bericht als solche benannt.
 
 ---
 
 ## Meilenstein 8: Intervallanalyse
 
 ### Lokale Baseline: zentriertes rollierendes Quantil (25 %) über 600s statt Median
+
+> **Überholt** — die lokale Baseline wurde später vollständig verworfen, siehe „Bezugsniveau: Zwei-Klassen-Schwelle statt lokaler Baseline" weiter unten.
 
 **Entscheidung:** `compute_baseline()` in `src/intervals/preprocessing.py` legt ein zentriertes rollierendes 25 %-Quantil (`BASELINE_QUANTILE = 0.25`, `BASELINE_WINDOW_S = 600`, `min_samples=1`) über die rohe Leistung, nicht den Median.
 
@@ -316,6 +318,8 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 ---
 
 ### Kandidatensuche: direkte Hysterese-Schwelle statt CUSUM + `scipy`
+
+> **Teilweise überholt** — die Absage an CUSUM und `scipy` gilt weiter, die Hysterese auf der *rohen* Leistung wurde jedoch durch eine einzelne Schwelle auf der geglätteten Leistung ersetzt, siehe „Glättung vor der Erkennung" weiter unten.
 
 **Entscheidung:** Ein erster Entwurf fand Blockkanten über ein kumuliertes Abweichungssignal (CUSUM) mit `scipy.signal.find_peaks`. Das wurde verworfen zugunsten einer einfachen Zwei-Schwellen-Hysterese direkt auf der rohen Leistung gegen die lokale Baseline (`find_threshold_candidates()` in `src/intervals/candidates.py`) — ohne Glättung, ohne kumuliertes Signal, ohne `scipy`.
 
@@ -333,11 +337,19 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 ## Meilenstein 9: Streamlit-Oberfläche
 
-### Kalender-Intensitätsstufen: Quartile der eigenen Belastungswerte statt fester Schwellen
+### Kalender-Intensitätsfarbe: kontinuierliche Prozentskala relativ zum härtesten Tag statt Quartil-Buckets
 
-**Entscheidung:** `bucket_training_load()` in `src/analysis/calendar.py` klassifiziert einen Tag relativ zu den `training_load`-Werten des gerade angezeigten Kalenders (Quartile der positiven Werte), nicht anhand fester TSS/TRIMP-Schwellen. Bucket 0 ist reserviert für Ruhetage, 1-4 für die Intensitätsviertel. In der Oberfläche wirkt sich der Bucket nur auf Fett-Schrift/`type="primary"` (trainiert) vs. Normal/`type="secondary"` (Ruhetag) sowie einen Tooltip-Text aus — keine eigene Farbskala, siehe „App-Architektur"-Eintrag oben.
+**Entscheidung:** `training_load_intensity_pct()` in `src/analysis/calendar.py` ersetzt die bisherigen 5 Quartil-Buckets durch eine kontinuierliche 0–100 %-Skala relativ zu den `training_load`-Werten des gerade angezeigten Kalenders (härtester Tag = 100 %, Ruhetag = 0 %, linear dazwischen); `calendar_view.py` färbt den Tages-Button entsprechend in einem Blauverlauf statt ihn nur fett darzustellen.
 
-**Begründung:** Ein fester Schwellenwert (z. B. TSS > 100 = "hoch") wäre ohne lange Trainingshistorie kalibriert zu raten. Relative Quartile bleiben unabhängig vom Umfang der gerade hochgeladenen Daten aussagekräftig — mit nur einer einzigen echten Trainingseinheit im Kalender ist sie automatisch Bucket 4 (Rest ist trivial), das genügt für die aktuelle Sitzungs-ohne-Persistenz-Situation.
+**Begründung:** Gleiche Logik wie zuvor — relativ zum eigenen Kalender statt fester TSS/TRIMP-Schwelle, weil ein Tag je nach Datenlage TSS oder TRIMP nutzt und beide nicht auf einer gemeinsamen absoluten Skala liegen — jetzt aber als sichtbarer Farbverlauf statt nur Fett-Schrift, auf ausdrücklichen Nutzerwunsch.
+
+---
+
+### Kalender: monatsweise Navigation statt einer durchgehenden Liste aller Wochen
+
+**Entscheidung:** `build_calendar()` nimmt jetzt `year`/`month` statt den Datumsbereich aus den Workouts abzuleiten, und liefert immer genau einen vollständigen Monat (1. bis letzter Tag, auch ohne Workouts). `calendar_view.py` hält den aktuell angezeigten Monat in `st.session_state.calendar_month` mit ◀/▶-Buttons zum Wechseln.
+
+**Begründung:** Die bisherige Ansicht zeigte alle Wochen zwischen erstem und letztem Workout durchgehend untereinander — bei mehreren Monaten Historie eine sehr lange Liste ohne Monats-Kontext. Als Nebeneffekt bezieht sich auch `training_load_intensity_pct()`s "härtester Tag im sichtbaren Kalender" jetzt auf den gezeigten Monat statt die komplette Historie.
 
 ---
 
@@ -380,5 +392,35 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Entscheidung:** Die DB liegt unter `data/private/`, demselben (bereits per `.gitignore` ausgeschlossenen) Ordner wie echte private Trainingsdaten. `_load_persisted_workouts()` legt das Verzeichnis vorher mit `mkdir(parents=True, exist_ok=True)` an.
 
 **Begründung:** Bei einem frischen Checkout existiert `data/private/` nicht (nicht Teil des Repositories) — ohne das `mkdir` würde `init_db()` beim allerersten Start mit `StorageError` fehlschlagen, was Anforderung 7 ("bei Dritten per README lauffähig") verletzen würde.
+
+---
+
+---
+
+## Überarbeitung der Intervallanalyse
+
+Die erste Fassung (Meilenstein 8) fand auf echten Fahrten nichts Brauchbares: auf einer 90-minütigen Einheit mit drei klar gefahrenen Achtminuten-Intervallen lieferte sie 8 Blöcke zwischen 61s und 266s, keiner davon deckungsgleich mit einem echten Intervall. Die folgenden Einträge dokumentieren den Umbau.
+
+### Glättung vor der Erkennung: 30s zentrierter Mittelwert
+
+**Entscheidung:** `smooth_power()` in `src/intervals/preprocessing.py` legt einen zentrierten 30s-Rolling-Mean über die Leistung (`SMOOTHING_WINDOW_S = 30`). Die gesamte Erkennung arbeitet auf dieser Spalte, nicht mehr auf der rohen Leistung.
+
+**Begründung:** Die rohe 1-Hz-Leistung ändert sich im Median um 12 W pro Sekunde, auch mitten in einer gleichmäßigen Belastung. Jede Schwelle auf diesem Signal wird ständig über- und unterschritten: auf der Messfahrt zersplitterte die Hysterese ein Training in 214 Rohkandidaten. Die Zwei-Schwellen-Hysterese war ein Symptomkurieren dafür und entfällt mit der Glättung ersatzlos — eine Schwelle genügt.
+
+---
+
+### Bezugsniveau: Zwei-Klassen-Schwelle (Otsu) statt lokaler Baseline oder globalem Median
+
+**Entscheidung:** `effort_threshold()` teilt die Leistungswerte einer Fahrt per Histogramm in eine leichte und eine harte Klasse und liefert den Schnitt, der die Varianz *zwischen* den Klassen maximiert (Verfahren nach Otsu, `OTSU_BINS = 64`). `compute_baseline()` wurde ersatzlos entfernt.
+
+**Begründung:** Zwei Vorgänger scheiterten aus entgegengesetzten Gründen. Die lokale rollierende Baseline besteht innerhalb eines langen Intervalls überwiegend aus dem Intervall selbst und steigt mit — gemessen 143 W Baseline innerhalb eines Blocks mit Ø 220 W, wodurch die Ausstiegsschwelle den Block von innen auffrisst. Ein globaler Median scheitert spiegelbildlich, sobald die Intervalle mehr als die Hälfte der Fahrt ausmachen: im Szenario `clean_5x4min` (54 % Arbeitsanteil) liegt der Median bei 220 W, die Schwelle bei 286 W und damit über dem Maximum von 251 W — es wird gar nichts gefunden. Der Zwei-Klassen-Split hängt nicht davon ab, *wieviel* Zeit in welcher Klasse verbracht wird, und löst beides. Gemessen über alle 8 Szenarien und 4 echte Fahrten: Median 3/8, 25 %-Quantil 4/8, Otsu 6/8 bei zugleich präzisesten Blockgrenzen auf den echten Fahrten. Coasting (≤ `COASTING_POWER_W`) wird vorher ausgeschlossen, sonst bildet es eine dritte Klasse, an der sich der Schnitt festsetzt.
+
+---
+
+### Mindestdauer 120s: kurze Intervalle sind eine dokumentierte Grenze
+
+**Entscheidung:** `MIN_BLOCK_DURATION_S = 120`. Blöcke darunter werden nicht gemeldet. Die Szenarien `ten_by_30s_with_pauses` und `single_1min_block_in_warmup` haben Tests, die prüfen, dass **nichts** erkannt wird.
+
+**Begründung:** Die 30s-Glättung dämpft alles in ihrer eigenen Größenordnung weg; 30s-Sprints wären nur über eine zweite, deutlich kürzere Skala erkennbar. Gemessen wurde die Alternative: bei 60s käme das 1-Minuten-Szenario dazu, dafür entstehen zwei Fehltreffer auf `rolling_terrain_no_intervals`, bei 30s zusätzlich ein Fehltreffer auf der echten Fahrt. 120s hält alle acht Szenarien fehltrefferfrei. Ein Mehrskalen-Ansatz wäre ein eigenes Feature; ein unfertiges davon wäre schlechter als die klar benannte Grenze (CLAUDE.md §7). Nichts zu melden ist ehrlicher, als falsche Blöcke zu melden.
 
 ---
