@@ -5,8 +5,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.day_view import (
-    _format_minutes,
-    _format_optional,
     _has_power_zone_data,
     _has_strictly_increasing_timestamps,
     _offers_interval_analysis,
@@ -23,17 +21,6 @@ def _workout(category: WorkoutCategory | None = None) -> Workout:
         category=category,
         records=[RecordPoint(timestamp=_START, power=200)],
     )
-
-
-def test_format_optional_distinguishes_zero_from_missing() -> None:
-    """A genuine 0 reading (e.g. coasting at 0 W) must not render as '–'."""
-    assert _format_optional(0.0, "{:.0f} W") == "0 W"
-    assert _format_optional(None, "{:.0f} W") == "–"
-
-
-def test_format_optional_applies_the_template() -> None:
-    assert _format_optional(147.5, "{:.0f} bpm") == "148 bpm"
-    assert _format_optional(-3.2, "{:+.1f} bpm") == "-3.2 bpm"
 
 
 def test_has_strictly_increasing_timestamps_accepts_a_clean_series() -> None:
@@ -103,15 +90,3 @@ def test_offers_no_interval_analysis_for_other_categories(
 
 def test_offers_no_interval_analysis_without_a_category() -> None:
     assert _offers_interval_analysis(_workout()) is False
-
-
-def test_format_minutes_without_a_sign() -> None:
-    assert _format_minutes(timedelta(minutes=4, seconds=30)) == "4.5 min"
-
-
-def test_format_minutes_always_shows_the_sign_of_a_deviation() -> None:
-    """The sign carries the meaning — short or long — so a deviation of
-    exactly zero must still read as a deviation, not as a bare number."""
-    assert _format_minutes(timedelta(minutes=1), signed=True) == "+1.0 min"
-    assert _format_minutes(timedelta(minutes=-1), signed=True) == "-1.0 min"
-    assert _format_minutes(timedelta(0), signed=True) == "+0.0 min"

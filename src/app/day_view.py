@@ -1,6 +1,6 @@
 """Render the selected day's detail: metrics, recovery, and every workout plot."""
 
-from datetime import date, timedelta
+from datetime import date
 from itertools import pairwise
 from typing import Final, Literal
 
@@ -13,6 +13,8 @@ from analysis.constants import DEFAULT_POWER_ZONE_MODEL, PowerZoneModel
 from analysis.heart_rate_zones import heart_rate_zone_distribution
 from analysis.power_zones import power_zone_distribution
 from analysis.workout import compute_workout_metrics
+from app.formatting import format_minutes, format_optional
+from app.interval_detail import render_interval_buttons
 from errors import AnalysisError
 from intervals import (
     IntervalBlock,
@@ -66,30 +68,6 @@ _WORKOUT_CATEGORY_BADGE_COLORS: Final[dict[WorkoutCategory, _BadgeColor]] = {
 used elsewhere in the timeline."""
 
 
-def _format_optional(value: float | None, template: str) -> str:
-    """Format an optional measurement, distinguishing "0" from "not recorded".
-
-    A plain ``value or "–"`` ternary would misrepresent a genuine 0 reading
-    (e.g. 0 W while coasting — a real measurement, not a missing one, see
-    ``docs/entscheidungen.md``) as unknown. Checking ``is not None``
-    explicitly avoids that.
-
-    Args:
-        value: The value to format, or None if it wasn't recorded.
-        template: A ``str.format`` template with one placeholder for value,
-            e.g. ``"{:.0f} W"``.
-
-    Returns:
-        The formatted value, or "–" if value is None.
-
-    >>> _format_optional(0.0, "{:.0f} W")
-    '0 W'
-    >>> _format_optional(None, "{:.0f} W")
-    '–'
-    """
-    return template.format(value) if value is not None else "–"
-
-
 def _select_workout(workouts: tuple[Workout, ...]) -> Workout:
     """Let the user pick a workout when a day has more than one.
 
@@ -141,10 +119,10 @@ def _render_metrics(workout: Workout) -> None:
     columns = st.columns(4)
     columns[0].metric("Dauer (bewegt)", str(metrics.moving_time))
     columns[1].metric(
-        "Ø Herzfrequenz", _format_optional(metrics.avg_heart_rate, "{:.0f} bpm")
+        "Ø Herzfrequenz", format_optional(metrics.avg_heart_rate, "{:.0f} bpm")
     )
-    columns[2].metric("Ø Leistung", _format_optional(metrics.avg_power, "{:.0f} W"))
-    columns[3].metric("Distanz", _format_optional(distance_km, "{:.1f} km"))
+    columns[2].metric("Ø Leistung", format_optional(metrics.avg_power, "{:.0f} W"))
+    columns[3].metric("Distanz", format_optional(distance_km, "{:.1f} km"))
 
 
 def _render_recovery(
@@ -157,11 +135,9 @@ def _render_recovery(
 
     st.subheader("Recovery")
     columns = st.columns(3)
-    columns[0].metric(
-        "Recovery-Score", _format_optional(day.recovery_score, "{:.0f} %")
-    )
-    columns[1].metric("Ruhepuls", _format_optional(day.resting_hr, "{:.0f} bpm"))
-    columns[2].metric("HRV", _format_optional(day.hrv_ms, "{:.0f} ms"))
+    columns[0].metric("Recovery-Score", format_optional(day.recovery_score, "{:.0f} %"))
+    columns[1].metric("Ruhepuls", format_optional(day.resting_hr, "{:.0f} bpm"))
+    columns[2].metric("HRV", format_optional(day.hrv_ms, "{:.0f} ms"))
 
 
 def _render_timeline(series: pl.DataFrame) -> None:
@@ -289,7 +265,7 @@ def _render_interval_summary(summary: IntervalSummary) -> None:
     columns[1].metric("Ø Gleichmäßigkeit", f"{summary.avg_evenness:.2f}")
     columns[2].metric(
         "Ø Pulsentwicklung",
-        _format_optional(summary.avg_heart_rate_drift_bpm, "{:+.1f} bpm"),
+        format_optional(summary.avg_heart_rate_drift_bpm, "{:+.1f} bpm"),
     )
     columns[3].metric("Watt-Spanne", f"{summary.power_spread_w:.0f} W")
 
@@ -319,16 +295,6 @@ def _render_interval_table(blocks: list[IntervalBlock]) -> None:
     )
 
 
-def _format_minutes(duration: timedelta, signed: bool = False) -> str:
-    """Format a duration as minutes with one decimal, optionally signed.
-
-    A signed value is a deviation from the plan, where the sign carries
-    the meaning (short vs. long), so it is always shown.
-    """
-    minutes = duration.total_seconds() / 60
-    return f"{minutes:+.1f} min" if signed else f"{minutes:.1f} min"
-
-
 def _render_plan_comparison(comparison: PlanComparison) -> None:
     """Render the detected blocks against the plan the athlete entered."""
     st.markdown("**Soll/Ist-Vergleich**")
@@ -346,8 +312,8 @@ def _render_plan_comparison(comparison: PlanComparison) -> None:
         [
             {
                 "Wdh.": number,
-                "Dauer": _format_minutes(repetition.duration),
-                "Δ Dauer": _format_minutes(repetition.duration_deviation, signed=True),
+                "Dauer": format_minutes(repetition.duration),
+                "Δ Dauer": format_minutes(repetition.duration_deviation, signed=True),
                 "Ø Watt": round(repetition.avg_power_w),
                 "Δ Watt": f"{repetition.power_deviation_w:+.0f}",
             }
@@ -372,13 +338,13 @@ def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
 
     blocks = build_interval_blocks(series, candidates, ftp_watts)
     plan = workout.planned_intervals
-    st.pyplot(
-        plot_power_with_intervals(
-            series, blocks, plan.target_power_w if plan is not None else None
-        )
-    )
+    target_power_w = plan.target_power_w if plan is not None else None
+    st.pyplot(plot_power_with_intervals(series, blocks, target_power_w))
     _render_interval_summary(summarize_interval_blocks(blocks))
     _render_interval_table(blocks)
+    render_interval_buttons(
+        series, blocks, target_power_w, workout.start_time.isoformat()
+    )
     if plan is not None:
         _render_plan_comparison(compare_to_plan(blocks, plan))
 
