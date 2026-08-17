@@ -8,7 +8,7 @@ import pytest
 from errors import StorageError
 from models import PlannedIntervalSpec, RecordPoint, Workout, WorkoutCategory
 from storage.schema import init_db
-from storage.workouts import load_workouts, save_workout
+from storage.workouts import load_workouts, save_workout, update_workout_ftp
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
 
@@ -185,3 +185,58 @@ def test_load_workouts_wraps_a_closed_connection_as_storage_error() -> None:
 
     with pytest.raises(StorageError):
         load_workouts(closed_conn)
+
+
+def test_update_workout_ftp_changes_the_stored_value(conn: sqlite3.Connection) -> None:
+    save_workout(conn, _workout(ftp_watts=210))
+
+    assert update_workout_ftp(conn, START, 223) is True
+    assert load_workouts(conn)[0].ftp_watts == 223
+
+
+def test_update_workout_ftp_can_clear_the_value(conn: sqlite3.Connection) -> None:
+    save_workout(conn, _workout(ftp_watts=210))
+
+    update_workout_ftp(conn, START, None)
+
+    assert load_workouts(conn)[0].ftp_watts is None
+
+
+def test_update_workout_ftp_leaves_other_workouts_alone(
+    conn: sqlite3.Connection,
+) -> None:
+    later = START + timedelta(days=1)
+    save_workout(conn, _workout(ftp_watts=210))
+    save_workout(conn, _workout(start_time=later, ftp_watts=210))
+
+    update_workout_ftp(conn, START, 223)
+
+    assert [workout.ftp_watts for workout in load_workouts(conn)] == [223, 210]
+
+
+def test_update_workout_ftp_reports_an_unknown_workout(
+    conn: sqlite3.Connection,
+) -> None:
+    """A start time nothing was saved under must not silently look like a
+    successful correction."""
+    assert update_workout_ftp(conn, START, 223) is False
+
+
+def test_update_workout_ftp_keeps_the_records(conn: sqlite3.Connection) -> None:
+    """The correction touches one column; losing the measurements would be
+    a catastrophic side effect of an editable field."""
+    save_workout(conn, _workout())
+
+    update_workout_ftp(conn, START, 223)
+
+    assert len(load_workouts(conn)[0].records) == 3
+
+
+def test_update_workout_ftp_on_a_closed_database_raises(
+    conn: sqlite3.Connection,
+) -> None:
+    save_workout(conn, _workout())
+    conn.close()
+
+    with pytest.raises(StorageError):
+        update_workout_ftp(conn, START, 223)

@@ -1,7 +1,7 @@
 """Save and load workouts to/from the local SQLite database."""
 
 import sqlite3
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import deal
 from pydantic import ValidationError as PydanticValidationError
@@ -20,6 +20,8 @@ INSERT INTO workouts (
     planned_interval_target_power_w
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+_UPDATE_WORKOUT_FTP = "UPDATE workouts SET ftp_watts = ? WHERE start_time = ?"
 
 _INSERT_RECORD = """
 INSERT INTO records (
@@ -80,6 +82,41 @@ def save_workout(conn: sqlite3.Connection, workout: Workout) -> bool:
         return True
     except sqlite3.Error as exc:
         raise StorageError(f"could not save workout: {exc}") from exc
+
+
+def update_workout_ftp(
+    conn: sqlite3.Connection, start_time: datetime, ftp_watts: int | None
+) -> bool:
+    """Correct the FTP that a stored workout's analysis is scaled to.
+
+    The value imported from the FIT file is whatever was configured on the
+    head unit, which athletes routinely forget to update after a test, so
+    it can be well off. Correcting it here rather than deriving labels from
+    today's profile FTP keeps an old ride's analysis stable when the
+    athlete retests.
+
+    Args:
+        conn: Open database connection.
+        start_time: Start of the workout to correct, identifying it the
+            same way :func:`save_workout` detects duplicates.
+        ftp_watts: The FTP to scale this workout's analysis to, or None to
+            record that none is known.
+
+    Returns:
+        True if a stored workout was updated, False if none has that
+        start time.
+
+    Raises:
+        StorageError: If the database write fails.
+    """
+    try:
+        with conn:
+            cursor = conn.execute(
+                _UPDATE_WORKOUT_FTP, (ftp_watts, start_time.isoformat())
+            )
+        return cursor.rowcount > 0
+    except sqlite3.Error as exc:
+        raise StorageError(f"could not update workout FTP: {exc}") from exc
 
 
 def _workout_row(workout: Workout) -> tuple[object, ...]:

@@ -1,6 +1,7 @@
 """Render the selected day's detail: metrics, recovery, and every workout plot."""
 
-from datetime import date
+from collections.abc import Callable
+from datetime import date, datetime
 from itertools import pairwise
 from typing import Final, Literal
 
@@ -416,7 +417,78 @@ def _offers_interval_analysis(workout: Workout) -> bool:
     return workout.category is WorkoutCategory.INTERVALLE
 
 
-def _render_intervals(workout: Workout, ftp_watts: int | None) -> None:
+def effective_ftp(workout: Workout, profile_ftp: int | None) -> int | None:
+    """The FTP a workout's analysis should be scaled to.
+
+    The workout's own value wins, because it belongs to the day the ride
+    was recorded: an interval type derived from today's profile FTP would
+    silently rewrite itself every time the athlete retests. The profile
+    value only fills in for a workout that carries none, e.g. a FIT file
+    recorded on a head unit with no FTP configured.
+
+    Args:
+        workout: The workout being analysed.
+        profile_ftp: The athlete's current FTP from the sidebar, or None.
+
+    Returns:
+        The FTP to scale this workout to, or None if neither is known.
+
+    >>> from datetime import UTC, datetime
+    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
+    >>> records = [RecordPoint(timestamp=start, power=200)]
+    >>> ride = Workout(start_time=start, sport="cycling", records=records)
+    >>> effective_ftp(ride.model_copy(update={"ftp_watts": 210}), 223)
+    210
+    >>> effective_ftp(ride, 223)
+    223
+    >>> effective_ftp(ride, None)
+    """
+    return workout.ftp_watts if workout.ftp_watts is not None else profile_ftp
+
+
+def _render_ftp_input(
+    workout: Workout,
+    profile_ftp: int | None,
+    save_workout_ftp: Callable[[datetime, int | None], None],
+) -> int | None:
+    """Show the FTP this analysis is scaled to and let the athlete correct it.
+
+    Seeded from :func:`effective_ftp`, so the field starts at the value
+    recorded with the ride. A head unit is easily left on a stale FTP after
+    a test, which would put every percentage — and with it the interval
+    type — off by that much, so the value has to be visible and editable
+    right where it is used rather than buried in the profile.
+
+    Args:
+        workout: The workout being analysed.
+        profile_ftp: The athlete's current FTP from the sidebar, or None.
+        save_workout_ftp: Called with the workout's start time and the new
+            value whenever the athlete changes it.
+
+    Returns:
+        The FTP to scale this analysis to, or None if none is set.
+    """
+    stored = effective_ftp(workout, profile_ftp)
+    entered = st.number_input(
+        "FTP dieser Fahrt (Watt)",
+        min_value=1,
+        max_value=600,
+        value=stored,
+        step=1,
+        key=f"workout_ftp_{workout.start_time.isoformat()}",
+        help="Beim Import aus der FIT-Datei übernommen. Korrigieren, wenn der "
+        "Radcomputer damals auf einem veralteten Wert stand.",
+    )
+    if entered != stored:
+        save_workout_ftp(workout.start_time, entered)
+    return entered
+
+
+def _render_intervals(
+    workout: Workout,
+    profile_ftp: int | None,
+    save_workout_ftp: Callable[[datetime, int | None], None],
+) -> None:
     """Run interval-block detection on demand, behind a per-workout button.
 
     Offered only where :func:`_offers_interval_analysis` allows it, and
@@ -435,6 +507,7 @@ def _render_intervals(workout: Workout, ftp_watts: int | None) -> None:
         return
 
     st.subheader("Intervalle")
+    ftp_watts = _render_ftp_input(workout, profile_ftp, save_workout_ftp)
     _run_interval_analysis(workout, ftp_watts)
 
 
@@ -444,15 +517,21 @@ def render_day(
     ftp_watts: int | None,
     hr_rest: int | None,
     hr_max: int | None,
+    save_workout_ftp: Callable[[datetime, int | None], None],
 ) -> None:
     """Render the full detail view for one calendar day: every workout plot.
 
     Args:
         day: The selected calendar day.
         recovery_days: All imported recovery days, to look the day's own up in.
-        ftp_watts: The athlete's FTP, or None if unknown.
+        ftp_watts: The athlete's current FTP from the sidebar, or None if
+            unknown. Only a fallback for a workout that carries none of its
+            own — see :func:`effective_ftp`.
         hr_rest: The athlete's resting heart rate, or None if unknown.
         hr_max: The athlete's maximum heart rate, or None if unknown.
+        save_workout_ftp: Persists a corrected per-workout FTP. Passed in
+            rather than written here so this module stays free of database
+            access, like every other view.
     """
     if not day.workouts:
         st.subheader(day.date.isoformat())
@@ -470,4 +549,4 @@ def render_day(
     _render_timeline(series)
     _render_zones(workout.records, hr_rest, hr_max, ftp_watts)
     _render_gps_map(workout, series)
-    _render_intervals(workout, ftp_watts)
+    _render_intervals(workout, ftp_watts, save_workout_ftp)

@@ -8,7 +8,7 @@ persisted — they are derived from the records and recomputed on demand.
 """
 
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -31,7 +31,7 @@ from errors import StorageError
 from models import PlannedIntervalSpec, RecoveryDay, Workout, WorkoutCategory
 from storage import init_db
 from storage.profile import load_profile, save_profile
-from storage.workouts import load_workouts
+from storage.workouts import load_workouts, update_workout_ftp
 
 _DB_PATH: Final = Path("data/private/fitlytics.db")
 
@@ -229,6 +229,30 @@ def _persist_profile(
         )
 
 
+def _persist_workout_ftp(start_time: datetime, ftp_watts: int | None) -> None:
+    """Save a corrected per-workout FTP, keeping the day view database-free.
+
+    Passed into :func:`app.day_view.render_day` as a callback so all
+    database access stays in this module, alongside every other write.
+
+    Args:
+        start_time: Start of the workout whose FTP was corrected.
+        ftp_watts: The corrected value, or None if it was cleared.
+    """
+    try:
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = init_db(_DB_PATH)
+        try:
+            update_workout_ftp(conn, start_time, ftp_watts)
+        finally:
+            conn.close()
+    except (StorageError, OSError) as exc:
+        st.error(
+            f"FTP der Fahrt konnte nicht gespeichert werden, "
+            f"gilt nur für diese Sitzung: {exc}"
+        )
+
+
 def _render_planned_interval_inputs(file_id: str) -> PlannedIntervalSpec | None:
     """Render the plan's repetitions/duration/target-power fields, if any.
 
@@ -410,6 +434,7 @@ def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
         st.session_state.ftp_watts,
         st.session_state.hr_rest,
         st.session_state.hr_max,
+        _persist_workout_ftp,
     )
 
 

@@ -114,8 +114,11 @@ class Workout(BaseModel):
             upload time; None otherwise.
         sport: Sport as reported by the device (e.g. "cycling").
         sub_sport: More specific sport classification, if available.
-        ftp_watts: Functional Threshold Power configured on the device at
-            recording time, if available.
+        ftp_watts: Functional Threshold Power this workout's analysis is
+            scaled to, if known. Seeded at import from what was configured
+            on the device, and correctable afterwards — a head unit left on
+            a stale value would otherwise misjudge the whole session (see
+            :func:`storage.workouts.update_workout_ftp`).
         total_ascent_m: Total climbed elevation, if available.
         total_descent_m: Total descended elevation, if available.
         avg_grade_pct: Average gradient over the session, if available.
