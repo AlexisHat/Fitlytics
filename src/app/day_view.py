@@ -13,7 +13,7 @@ from analysis.constants import DEFAULT_POWER_ZONE_MODEL, PowerZoneModel
 from analysis.heart_rate_zones import heart_rate_zone_distribution
 from analysis.power_zones import power_zone_distribution
 from analysis.workout import compute_workout_metrics
-from app.formatting import format_minutes, format_optional
+from app.formatting import format_interval_type, format_minutes, format_optional
 from app.interval_detail import render_interval_buttons
 from errors import AnalysisError
 from intervals import (
@@ -21,6 +21,9 @@ from intervals import (
     IntervalSummary,
     PlanComparison,
     build_interval_blocks,
+    classify_block,
+    classify_relative_power,
+    classify_session,
     compare_to_plan,
     find_candidates,
     mark_standstill,
@@ -28,7 +31,13 @@ from intervals import (
     smooth_power,
     summarize_interval_blocks,
 )
-from models import RecordPoint, RecoveryDay, Workout, WorkoutCategory
+from models import (
+    PlannedIntervalSpec,
+    RecordPoint,
+    RecoveryDay,
+    Workout,
+    WorkoutCategory,
+)
 from plots import (
     METRICS,
     POWER_ZONE_MODEL_LABELS,
@@ -270,6 +279,33 @@ def _render_interval_summary(summary: IntervalSummary) -> None:
     columns[3].metric("Watt-Spanne", f"{summary.power_spread_w:.0f} W")
 
 
+def _render_interval_types(
+    blocks: list[IntervalBlock],
+    plan: PlannedIntervalSpec | None,
+    ftp_watts: int | None,
+) -> None:
+    """Show the session's training type above the chart, beside the plan's.
+
+    Both sides come from the same bands, so "Geplant: Schwelle · Gefahren:
+    Sweet Spot" states plainly that the session landed one band below what
+    was intended — the comparison the athlete opens the analysis for.
+    """
+    ridden = classify_session(blocks)
+    if ridden is None or ftp_watts is None:
+        st.caption("Für die Typbestimmung fehlt ein FTP-Wert in der Seitenleiste.")
+        return
+
+    ridden_label = format_interval_type(ridden)
+    if plan is None:
+        st.markdown(f"Gefahren: **{ridden_label}**")
+        return
+
+    planned = classify_relative_power(plan.target_power_w / ftp_watts)
+    st.markdown(
+        f"Geplant: **{format_interval_type(planned)}** · Gefahren: **{ridden_label}**"
+    )
+
+
 def _render_interval_table(blocks: list[IntervalBlock]) -> None:
     """Render one row per detected interval block, with the exact numbers."""
     st.dataframe(
@@ -277,6 +313,7 @@ def _render_interval_table(blocks: list[IntervalBlock]) -> None:
             {
                 "Start": block.start.strftime("%H:%M:%S"),
                 "Dauer": str(block.duration),
+                "Typ": format_interval_type(classify_block(block)),
                 "Ø Watt": round(block.avg_power_w, 1),
                 "Ø Puls": (
                     round(block.avg_heart_rate, 1)
@@ -339,6 +376,7 @@ def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
     blocks = build_interval_blocks(series, candidates, ftp_watts)
     plan = workout.planned_intervals
     target_power_w = plan.target_power_w if plan is not None else None
+    _render_interval_types(blocks, plan, ftp_watts)
     st.pyplot(plot_power_with_intervals(series, blocks, target_power_w))
     _render_interval_summary(summarize_interval_blocks(blocks))
     _render_interval_table(blocks)

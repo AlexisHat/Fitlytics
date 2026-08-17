@@ -1,6 +1,21 @@
 """Shared value formatting for the Streamlit views."""
 
 from datetime import timedelta
+from typing import Final
+
+from intervals import IntervalType
+
+INTERVAL_TYPE_LABELS: Final[dict[IntervalType, str]] = {
+    IntervalType.TEMPO: "Tempo",
+    IntervalType.SWEET_SPOT: "Sweet Spot",
+    IntervalType.SCHWELLE: "Schwelle",
+    IntervalType.VO2MAX: "VO2max",
+    IntervalType.ANAEROB: "Anaerob",
+    IntervalType.GEMISCHT: "Gemischt",
+}
+"""German display label per interval type. Kept here rather than on the enum
+so the domain layer stays free of display strings, and reachable from both
+the day view and the interval close-up without either importing the other."""
 
 
 def format_optional(value: float | None, template: str) -> str:
@@ -25,6 +40,23 @@ def format_optional(value: float | None, template: str) -> str:
     '–'
     """
     return template.format(value) if value is not None else "–"
+
+
+def format_interval_type(interval_type: IntervalType | None) -> str:
+    """Name an interval type for display, or "–" if it could not be determined.
+
+    Args:
+        interval_type: The type, or None if the athlete's FTP is unknown.
+
+    Returns:
+        The German label, or "–".
+
+    >>> format_interval_type(IntervalType.SWEET_SPOT)
+    'Sweet Spot'
+    >>> format_interval_type(None)
+    '–'
+    """
+    return INTERVAL_TYPE_LABELS[interval_type] if interval_type is not None else "–"
 
 
 def format_minutes(duration: timedelta, signed: bool = False) -> str:

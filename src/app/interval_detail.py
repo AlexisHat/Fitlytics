@@ -5,8 +5,14 @@ from typing import Final
 import polars as pl
 import streamlit as st
 
-from app.formatting import format_minutes, format_optional
-from intervals import BlockDetail, IntervalBlock, block_detail, slice_block
+from app.formatting import format_interval_type, format_minutes, format_optional
+from intervals import (
+    BlockDetail,
+    IntervalBlock,
+    block_detail,
+    classify_block,
+    slice_block,
+)
 from plots import plot_interval_detail
 
 _BUTTONS_PER_ROW: Final = 6
@@ -87,7 +93,10 @@ def _show_interval_dialog(
         target_power_w: The planned power for the session, or None if the
             athlete gave no plan.
     """
-    st.markdown(f"**Intervall {number}** — {format_minutes(block.duration)}")
+    type_label = format_interval_type(classify_block(block))
+    st.markdown(
+        f"**Intervall {number}** — {format_minutes(block.duration)} · {type_label}"
+    )
     block_series = slice_block(series, block)
     _render_detail_metrics(block, block_detail(block_series))
     st.pyplot(plot_interval_detail(block_series, block, target_power_w))

@@ -7,6 +7,12 @@ from intervals.blocks import (
     build_interval_blocks,
     summarize_interval_blocks,
 )
+from intervals.classification import (
+    IntervalType,
+    classify_block,
+    classify_relative_power,
+    classify_session,
+)
 from intervals.comparison import (
     PlanComparison,
     RepetitionComparison,
@@ -29,6 +35,7 @@ __all__ = [
     "IntervalBlock",
     "IntervalEvaluation",
     "IntervalSummary",
+    "IntervalType",
     "PlanComparison",
     "RepetitionComparison",
     "RideSegment",
@@ -36,6 +43,9 @@ __all__ = [
     "build_interval_block",
     "build_interval_blocks",
     "build_ride",
+    "classify_block",
+    "classify_relative_power",
+    "classify_session",
     "compare_to_plan",
     "effort_threshold",
     "evaluate",

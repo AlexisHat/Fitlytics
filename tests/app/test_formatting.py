@@ -2,7 +2,8 @@
 
 from datetime import timedelta
 
-from app.formatting import format_minutes, format_optional
+from app.formatting import format_interval_type, format_minutes, format_optional
+from intervals import IntervalType
 
 
 def test_format_optional_distinguishes_zero_from_missing() -> None:
@@ -26,3 +27,19 @@ def test_format_minutes_always_shows_the_sign_of_a_deviation() -> None:
     assert format_minutes(timedelta(minutes=1), signed=True) == "+1.0 min"
     assert format_minutes(timedelta(minutes=-1), signed=True) == "-1.0 min"
     assert format_minutes(timedelta(0), signed=True) == "+0.0 min"
+
+
+def test_format_interval_type_names_the_type() -> None:
+    assert format_interval_type(IntervalType.SWEET_SPOT) == "Sweet Spot"
+
+
+def test_format_interval_type_without_a_type() -> None:
+    """Without an FTP value there is no type, and the table must show that
+    rather than an invented label."""
+    assert format_interval_type(None) == "–"
+
+
+def test_every_interval_type_has_a_label() -> None:
+    """A missing entry would raise a KeyError in the middle of rendering."""
+    for interval_type in IntervalType:
+        assert format_interval_type(interval_type)
