@@ -8,7 +8,7 @@ persisted — they are derived from the records and recomputed on demand.
 """
 
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -27,6 +27,7 @@ from app.data import (
 )
 from app.day_view import WORKOUT_CATEGORY_LABELS, render_day
 from app.recovery_view import render_recovery
+from app.suggestion_view import render_suggestion
 from errors import StorageError
 from models import PlannedIntervalSpec, RecoveryDay, Workout, WorkoutCategory
 from storage import init_db
@@ -439,7 +440,13 @@ def _render_selected_day(calendar_days: tuple[CalendarDay, ...]) -> None:
 
 
 def _render_training_page() -> None:
-    """Render the training page: the calendar and the selected day's detail."""
+    """Render the training page: today's recommendation, calendar and day detail."""
+    render_suggestion(
+        st.session_state.workouts,
+        st.session_state.recovery_days,
+        st.session_state.ftp_watts,
+        date.today(),
+    )
     calendar_days = render_calendar(
         st.session_state.workouts,
         st.session_state.ftp_watts,
