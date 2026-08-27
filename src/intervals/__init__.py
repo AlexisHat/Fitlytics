@@ -12,6 +12,7 @@ from intervals.classification import (
     classify_block,
     classify_relative_power,
     classify_session,
+    relative_power_band,
 )
 from intervals.comparison import (
     PlanComparison,
@@ -54,6 +55,7 @@ __all__ = [
     "has_strictly_increasing_timestamps",
     "iou",
     "mark_standstill",
+    "relative_power_band",
     "resample_to_1hz",
     "slice_block",
     "smooth_power",

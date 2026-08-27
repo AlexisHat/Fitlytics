@@ -175,3 +175,44 @@ def classify_session(blocks: list[IntervalBlock]) -> IntervalType | None:
     highest = max(counts.values())
     leaders = [block_type for block_type, count in counts.items() if count == highest]
     return leaders[0] if len(leaders) == 1 else IntervalType.GEMISCHT
+
+
+@deal.pre(lambda interval_type: interval_type is not IntervalType.GEMISCHT)
+@deal.ensure(lambda _: _.result[1] is None or _.result[0] < _.result[1])
+def relative_power_band(interval_type: IntervalType) -> tuple[float, float | None]:
+    """The band of relative power a type covers, as ``(lower, upper)``.
+
+    The inverse of :func:`classify_relative_power`, for callers that start
+    from a type and need a power rather than the other way round — a
+    training recommendation naming a target wattage, for instance.
+
+    Args:
+        interval_type: The type to look up; not
+            :attr:`IntervalType.GEMISCHT`, which describes a session
+            rather than a power and so has no band.
+
+    Returns:
+        The band's lower bound (exclusive, 0.0 for the lowest type) and
+        its upper bound (inclusive), which is None for the open-ended top
+        band.
+
+    Raises:
+        deal.PreContractError: If asked for
+            :attr:`IntervalType.GEMISCHT`.
+
+    >>> relative_power_band(IntervalType.SWEET_SPOT)
+    (0.84, 0.97)
+    >>> relative_power_band(IntervalType.TEMPO)
+    (0.0, 0.84)
+    >>> relative_power_band(IntervalType.ANAEROB)
+    (1.2, None)
+    """
+    lower = 0.0
+    for candidate, upper in _TYPE_BANDS:
+        if candidate is interval_type:
+            return lower, upper
+        if upper is not None:
+            lower = upper
+    # Unreachable: every type except GEMISCHT appears in the band table,
+    # and the precondition rules that one out.
+    raise AssertionError("no band for this type")
