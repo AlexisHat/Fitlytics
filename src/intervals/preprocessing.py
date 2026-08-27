@@ -359,3 +359,32 @@ def effort_threshold(series: pl.DataFrame) -> float | None:
         if variance > best_variance:
             best_boundary, best_variance = boundary, variance
     return lowest + best_boundary * width
+
+
+def has_strictly_increasing_timestamps(records: list[RecordPoint]) -> bool:
+    """Whether ``records`` satisfies :func:`resample_to_1hz`'s timing invariant.
+
+    That function requires strictly increasing timestamps as a contract
+    precondition — a legitimate invariant for internal callers, but records
+    coming from a validated, real-world FIT file only guarantee
+    non-decreasing order. Two samples sharing a timestamp is thus a
+    possible real state, not a bug, and must not reach that contract as a
+    crash. Callers check this first and skip the ride instead.
+
+    Args:
+        records: The workout's record points.
+
+    Returns:
+        True if every timestamp is strictly later than the one before it.
+
+    >>> from datetime import UTC, datetime, timedelta
+    >>> start = datetime(2026, 1, 1, tzinfo=UTC)
+    >>> clean = [RecordPoint(timestamp=start + timedelta(seconds=i)) for i in range(3)]
+    >>> has_strictly_increasing_timestamps(clean)
+    True
+    >>> has_strictly_increasing_timestamps([clean[0], clean[0]])
+    False
+    """
+    return all(
+        earlier.timestamp < later.timestamp for earlier, later in pairwise(records)
+    )

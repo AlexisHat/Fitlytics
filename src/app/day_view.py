@@ -2,7 +2,6 @@
 
 from collections.abc import Callable
 from datetime import date, datetime
-from itertools import pairwise
 from typing import Final, Literal
 
 import polars as pl
@@ -11,6 +10,7 @@ from streamlit.delta_generator import DeltaGenerator
 
 from analysis.calendar import CalendarDay
 from analysis.constants import DEFAULT_POWER_ZONE_MODEL, PowerZoneModel
+from analysis.ftp import effective_ftp
 from analysis.heart_rate_zones import heart_rate_zone_distribution
 from analysis.power_zones import power_zone_distribution
 from analysis.workout import compute_workout_metrics
@@ -27,6 +27,7 @@ from intervals import (
     classify_session,
     compare_to_plan,
     find_candidates,
+    has_strictly_increasing_timestamps,
     mark_standstill,
     resample_to_1hz,
     smooth_power,
@@ -253,21 +254,6 @@ def _render_gps_map(workout: Workout, series: pl.DataFrame) -> None:
     st.plotly_chart(figure, width="stretch")
 
 
-def _has_strictly_increasing_timestamps(records: list[RecordPoint]) -> bool:
-    """Whether ``records`` satisfies the interval pipeline's timing invariant.
-
-    :func:`intervals.resample_to_1hz` requires strictly increasing
-    timestamps as a contract precondition — a legitimate invariant for
-    internal callers, but ``records`` here comes from a validated,
-    real-world FIT file, which only guarantees non-decreasing order. Two
-    samples sharing a timestamp is thus a possible real state, not a bug,
-    and must not reach that contract as a crash.
-    """
-    return all(
-        earlier.timestamp < later.timestamp for earlier, later in pairwise(records)
-    )
-
-
 def _render_interval_summary(summary: IntervalSummary) -> None:
     """Render the aggregate quality tiles for a workout's interval blocks."""
     columns = st.columns(4)
@@ -362,7 +348,7 @@ def _render_plan_comparison(comparison: PlanComparison) -> None:
 
 def _run_interval_analysis(workout: Workout, ftp_watts: int | None) -> None:
     """Compute interval-block detection for one workout and render the result."""
-    if not _has_strictly_increasing_timestamps(workout.records):
+    if not has_strictly_increasing_timestamps(workout.records):
         st.info("Intervallanalyse nicht möglich: doppelte Zeitstempel in den Rohdaten.")
         return
 
@@ -415,35 +401,6 @@ def _offers_interval_analysis(workout: Workout) -> bool:
     True
     """
     return workout.category is WorkoutCategory.INTERVALLE
-
-
-def effective_ftp(workout: Workout, profile_ftp: int | None) -> int | None:
-    """The FTP a workout's analysis should be scaled to.
-
-    The workout's own value wins, because it belongs to the day the ride
-    was recorded: an interval type derived from today's profile FTP would
-    silently rewrite itself every time the athlete retests. The profile
-    value only fills in for a workout that carries none, e.g. a FIT file
-    recorded on a head unit with no FTP configured.
-
-    Args:
-        workout: The workout being analysed.
-        profile_ftp: The athlete's current FTP from the sidebar, or None.
-
-    Returns:
-        The FTP to scale this workout to, or None if neither is known.
-
-    >>> from datetime import UTC, datetime
-    >>> start = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
-    >>> records = [RecordPoint(timestamp=start, power=200)]
-    >>> ride = Workout(start_time=start, sport="cycling", records=records)
-    >>> effective_ftp(ride.model_copy(update={"ftp_watts": 210}), 223)
-    210
-    >>> effective_ftp(ride, 223)
-    223
-    >>> effective_ftp(ride, None)
-    """
-    return workout.ftp_watts if workout.ftp_watts is not None else profile_ftp
 
 
 def _render_ftp_input(

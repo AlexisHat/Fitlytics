@@ -22,6 +22,7 @@ from intervals.detail import BlockDetail, block_detail, slice_block
 from intervals.evaluation import Interval, IntervalEvaluation, evaluate, iou
 from intervals.preprocessing import (
     effort_threshold,
+    has_strictly_increasing_timestamps,
     mark_standstill,
     resample_to_1hz,
     smooth_power,
@@ -50,6 +51,7 @@ __all__ = [
     "effort_threshold",
     "evaluate",
     "find_candidates",
+    "has_strictly_increasing_timestamps",
     "iou",
     "mark_standstill",
     "resample_to_1hz",
