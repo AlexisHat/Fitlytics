@@ -16,6 +16,7 @@ from analysis.power_zones import power_zone_distribution
 from analysis.workout import compute_workout_metrics
 from app.formatting import format_interval_type, format_minutes, format_optional
 from app.interval_detail import render_interval_buttons
+from app.metrics_sheet import render_metric_sheet_button
 from errors import AnalysisError
 from intervals import (
     IntervalBlock,
@@ -500,6 +501,7 @@ def render_day(
     _render_title(workout, day.date)
     _render_planned_intervals(workout)
     _render_metrics(workout)
+    render_metric_sheet_button(workout, ftp_watts, hr_rest, hr_max)
     _render_recovery(day.date, recovery_days)
 
     series = build_time_series(workout.records)
