@@ -3,11 +3,20 @@
 import math
 from datetime import UTC, datetime, timedelta
 
+import deal
+import polars as pl
 import pytest
 
 from errors import AnalysisError
 from models import RecordPoint
-from plots.gps_map import METRICS, MetricKey, available_metrics, build_gps_map_figure
+from plots.gps_map import (
+    METRICS,
+    MetricKey,
+    _fitting_zoom,
+    _mercator_y,
+    available_metrics,
+    build_gps_map_figure,
+)
 from plots.series import build_time_series
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
@@ -34,6 +43,16 @@ def _point(
         latitude=latitude,
         longitude=longitude,
         distance_m=distance_m,
+    )
+
+
+def _series_with_track() -> pl.DataFrame:
+    """A two-fix track spanning 51.05-51.06 N and 6.85-6.86 E."""
+    return build_time_series(
+        [
+            _point(0, heart_rate=140, latitude=51.05, longitude=6.85),
+            _point(1, heart_rate=150, latitude=51.06, longitude=6.86),
+        ]
     )
 
 
@@ -112,13 +131,11 @@ def test_build_gps_map_figure_draws_a_line_and_a_marker_trace() -> None:
     assert fig.data[1].mode == "markers"
 
 
-def test_build_gps_map_figure_bounds_match_the_track_extent() -> None:
+def test_build_gps_map_figure_centres_on_the_track_extent() -> None:
     fig = build_gps_map_figure(build_time_series(_TRACK_RECORDS), MetricKey.HEART_RATE)
 
-    bounds = fig.layout.map.bounds
-    assert (bounds.west, bounds.east, bounds.south, bounds.north) == pytest.approx(
-        (6.85, 6.87, 51.05, 51.07)
-    )
+    centre = fig.layout.map.center
+    assert (centre.lon, centre.lat) == pytest.approx((6.86, 51.06))
 
 
 def test_build_gps_map_figure_leaves_a_gap_at_a_missing_fix() -> None:
@@ -246,7 +263,7 @@ def test_build_gps_map_figure_accepts_exactly_two_gps_fixes() -> None:
 def test_build_gps_map_figure_handles_a_stationary_track() -> None:
     """A rider stopped at a single spot (or an indoor trainer with a stray
     GPS fix) collapses the bounding box to a single point; this must not
-    raise, even though west == east and south == north."""
+    raise, even though the box has no extent to fit a zoom level to."""
     records = [
         _point(0, latitude=51.05, longitude=6.85, heart_rate=140),
         _point(1, latitude=51.05, longitude=6.85, heart_rate=150),
@@ -254,9 +271,9 @@ def test_build_gps_map_figure_handles_a_stationary_track() -> None:
 
     fig = build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
 
-    bounds = fig.layout.map.bounds
-    assert (bounds.west, bounds.east) == pytest.approx((6.85, 6.85))
-    assert (bounds.south, bounds.north) == pytest.approx((51.05, 51.05))
+    centre = fig.layout.map.center
+    assert (centre.lon, centre.lat) == pytest.approx((6.85, 51.05))
+    assert fig.layout.map.zoom == 15.0
 
 
 def test_build_gps_map_figure_rejects_a_metric_recorded_only_without_gps() -> None:
@@ -270,3 +287,54 @@ def test_build_gps_map_figure_rejects_a_metric_recorded_only_without_gps() -> No
 
     with pytest.raises(AnalysisError):
         build_gps_map_figure(build_time_series(records), MetricKey.HEART_RATE)
+
+
+def test_figure_frames_the_track_with_centre_and_zoom_not_bounds() -> None:
+    """bounds is MapLibre's maxBounds, a hard limit on panning and zooming
+    out — framing the track with it would make the track itself the furthest
+    the rider could ever zoom out (see plots.gps_map._fitting_zoom)."""
+    figure = build_gps_map_figure(_series_with_track(), MetricKey.HEART_RATE)
+
+    assert figure.layout.map.bounds.west is None
+    assert figure.layout.map.zoom is not None
+    assert figure.layout.map.center.lat is not None
+
+
+def test_figure_centres_the_map_on_the_tracks_midpoint() -> None:
+    figure = build_gps_map_figure(_series_with_track(), MetricKey.HEART_RATE)
+
+    assert figure.layout.map.center.lat == pytest.approx(51.055, abs=1e-6)
+    assert figure.layout.map.center.lon == pytest.approx(6.855, abs=1e-6)
+
+
+def test_fitting_zoom_shows_a_wider_track_further_out() -> None:
+    wide = _fitting_zoom(6.8, 7.2, 51.0, 51.1)
+    narrow = _fitting_zoom(6.8, 6.85, 51.0, 51.02)
+
+    assert wide < narrow
+
+
+def test_fitting_zoom_caps_a_track_without_extent() -> None:
+    assert _fitting_zoom(6.85, 6.85, 51.05, 51.05) == 15.0
+
+
+def test_fitting_zoom_stays_non_negative_for_a_worldwide_box() -> None:
+    assert _fitting_zoom(-180.0, 180.0, -85.0, 85.0) == 0.0
+
+
+def test_fitting_zoom_rejects_unordered_bounds() -> None:
+    with pytest.raises(deal.PreContractError):
+        _fitting_zoom(7.0, 6.8, 51.0, 51.1)
+
+
+def test_mercator_y_maps_the_equator_to_the_middle() -> None:
+    assert _mercator_y(0.0) == 0.5
+
+
+def test_mercator_y_is_monotonic_from_north_to_south() -> None:
+    assert _mercator_y(60.0) < _mercator_y(0.0) < _mercator_y(-60.0)
+
+
+def test_mercator_y_clamps_the_poles_instead_of_diverging() -> None:
+    assert _mercator_y(90.0) == _mercator_y(85.0)
+    assert _mercator_y(-90.0) == _mercator_y(-85.0)

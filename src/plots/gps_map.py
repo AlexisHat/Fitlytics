@@ -1,7 +1,8 @@
 """Registry and figure builder for the GPS track map."""
 
+import math
 from enum import StrEnum
-from typing import Final, NamedTuple
+from typing import Final, NamedTuple, cast
 
 import deal
 import plotly.graph_objects as go
@@ -150,6 +151,33 @@ _COLOR_RANGE_HIGH_QUANTILE: Final = 0.98
 (sensor spike, brief sprint) doesn't wash out the colour scale for the rest
 of the ride."""
 
+_MAP_HEIGHT_PX: Final = 600
+"""Height the figure is drawn at, and the one dimension of the viewport
+whose size is actually known when the zoom level is computed."""
+
+_ASSUMED_MAP_WIDTH_PX: Final = 1000
+"""Assumed rendered width. Streamlit stretches the chart to the page, so the
+true width is only known in the browser; a zoom level derived from this is
+off by at most half a level on a much wider or narrower screen, which shows
+as a slightly roomier or tighter margin around the track, never as a track
+running off the edge (see :data:`_ZOOM_MARGIN`)."""
+
+_TILE_SIZE_PX: Final = 512
+"""MapLibre's tile size: the whole world is this many pixels wide at zoom 0,
+and twice as wide with every further level."""
+
+_ZOOM_MARGIN: Final = 0.35
+"""Zoom levels subtracted from the exact fit, so the track keeps a margin to
+the edges instead of touching them."""
+
+_MAX_ZOOM: Final = 15.0
+"""Ceiling for the computed zoom, for a track whose fixes are so close
+together that the exact fit would be far past any useful map detail."""
+
+_MERCATOR_LATITUDE_LIMIT: Final = 85.0
+"""Web Mercator cannot express the poles; latitudes are clamped to the usual
+cutoff before projecting."""
+
 
 def _format_elapsed(seconds: float) -> str:
     """Format elapsed seconds as a zero-padded ``HH:MM:SS`` clock string.
@@ -262,6 +290,78 @@ def _percentile_color_range(values: pl.Series) -> tuple[float, float]:
     low = values.quantile(_COLOR_RANGE_LOW_QUANTILE)
     high = values.quantile(_COLOR_RANGE_HIGH_QUANTILE)
     return (low if low is not None else 0.0), (high if high is not None else 0.0)
+
+
+def _mercator_y(latitude: float) -> float:
+    """Project a latitude onto the Web Mercator y axis, 0 (north) to 1 (south).
+
+    Args:
+        latitude: Decimal-degree latitude.
+
+    Returns:
+        The latitude's position on the projected world square, where 0 is
+        the northern edge and 1 the southern one.
+
+    >>> _mercator_y(0.0)
+    0.5
+    >>> round(_mercator_y(51.05), 4)
+    0.3346
+    """
+    clamped = max(-_MERCATOR_LATITUDE_LIMIT, min(_MERCATOR_LATITUDE_LIMIT, latitude))
+    radians = math.radians(clamped)
+    projected = math.log(math.tan(radians) + 1 / math.cos(radians))
+    return (1 - projected / math.pi) / 2
+
+
+@deal.pre(lambda west, east, south, north: west <= east and south <= north)
+@deal.ensure(lambda _: 0 <= _.result <= _MAX_ZOOM)
+def _fitting_zoom(west: float, east: float, south: float, north: float) -> float:
+    """Find the zoom level at which a track's bounding box fits the map.
+
+    Derived rather than handed to plotly as ``layout.map.bounds``: plotly
+    passes that straight through as MapLibre's ``maxBounds``, which is a
+    hard limit on panning and zooming out, not a starting view. Framing the
+    track that way would make the track itself the furthest the rider can
+    ever zoom out.
+
+    Args:
+        west: Smallest longitude of the track; must not exceed ``east``.
+        east: Largest longitude of the track.
+        south: Smallest latitude of the track; must not exceed ``north``.
+        north: Largest latitude of the track.
+
+    Returns:
+        The zoom level, between 0 and :data:`_MAX_ZOOM`, at which the box
+        fits the assumed viewport with :data:`_ZOOM_MARGIN` to spare.
+
+    Raises:
+        deal.PreContractError: If the bounds are not ordered, which would
+            mean they did not come from a track's own minima and maxima.
+
+    A wider track is shown further out than a narrow one:
+
+    >>> _fitting_zoom(6.8, 7.0, 51.0, 51.1) < _fitting_zoom(6.8, 6.85, 51.0, 51.02)
+    True
+
+    A single repeated fix has no extent to fit and hits the ceiling:
+
+    >>> _fitting_zoom(6.85, 6.85, 51.05, 51.05)
+    15.0
+    """
+    longitude_span = (east - west) / 360
+    latitude_span = _mercator_y(south) - _mercator_y(north)
+
+    levels: list[float] = []
+    if longitude_span > 0:
+        levels.append(
+            math.log2(_ASSUMED_MAP_WIDTH_PX / (_TILE_SIZE_PX * longitude_span))
+        )
+    if latitude_span > 0:
+        levels.append(math.log2(_MAP_HEIGHT_PX / (_TILE_SIZE_PX * latitude_span)))
+    if not levels:
+        return _MAX_ZOOM
+
+    return max(0.0, min(min(levels) - _ZOOM_MARGIN, _MAX_ZOOM))
 
 
 def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
@@ -381,18 +481,19 @@ def build_gps_map_figure(series: pl.DataFrame, metric: MetricKey) -> go.Figure:
             hovertemplate="%{text}<extra></extra>",
         )
     )
+    west = cast(float, fixes["longitude"].min())
+    east = cast(float, fixes["longitude"].max())
+    south = cast(float, fixes["latitude"].min())
+    north = cast(float, fixes["latitude"].max())
+
     fig.update_layout(
         map={
             "style": _MAP_STYLE,
-            "bounds": {
-                "west": fixes["longitude"].min(),
-                "east": fixes["longitude"].max(),
-                "south": fixes["latitude"].min(),
-                "north": fixes["latitude"].max(),
-            },
+            "center": {"lon": (west + east) / 2, "lat": (south + north) / 2},
+            "zoom": _fitting_zoom(west, east, south, north),
         },
         showlegend=False,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
-        height=600,
+        height=_MAP_HEIGHT_PX,
     )
     return fig
