@@ -4,11 +4,12 @@ from datetime import UTC, date, datetime
 
 from analysis.calendar import CalendarDay
 from app.calendar_view import (
-    _DARK_TEXT_THRESHOLD_PCT,
+    _INTENSITY_STOPS,
     _day_tooltip,
     _default_month,
     _grid_weeks,
     _intensity_color,
+    _intensity_rgb,
     _profile_missing,
     _readable_text_color,
     _shift_month,
@@ -81,23 +82,31 @@ def test_day_tooltip_joins_multiple_workout_names() -> None:
     assert _day_tooltip(day, 90) == "Frühe Grundlage, Abendintervalle — 90%"
 
 
-def test_intensity_color_is_light_blue_at_zero_percent() -> None:
-    assert _intensity_color(0) == "#dbeafe"
+def test_intensity_color_is_green_at_zero_percent() -> None:
+    assert _intensity_color(0) == "#bbf7d0"
 
 
-def test_intensity_color_is_dark_blue_at_hundred_percent() -> None:
-    assert _intensity_color(100) == "#172554"
+def test_intensity_color_is_red_at_hundred_percent() -> None:
+    assert _intensity_color(100) == "#dc2626"
 
 
-def test_intensity_color_gets_monotonically_darker() -> None:
-    colors = [_intensity_color(pct) for pct in range(0, 101, 10)]
+def test_intensity_rgb_matches_every_defined_stop_exactly() -> None:
+    for pct, rgb in _INTENSITY_STOPS:
+        assert _intensity_rgb(pct) == rgb
 
-    assert colors == sorted(colors, reverse=True)
+
+def test_readable_text_color_is_dark_on_the_light_green_start() -> None:
+    assert _readable_text_color(0) == "#31333F"
 
 
-def test_readable_text_color_switches_at_the_threshold() -> None:
-    assert _readable_text_color(_DARK_TEXT_THRESHOLD_PCT - 1) == "#31333F"
-    assert _readable_text_color(_DARK_TEXT_THRESHOLD_PCT) == "#FFFFFF"
+def test_readable_text_color_is_white_on_the_darkest_red_end() -> None:
+    assert _readable_text_color(100) == "#FFFFFF"
+
+
+def test_readable_text_color_is_dark_on_the_bright_yellow_midpoint() -> None:
+    """The yellow midpoint is brighter than the green step before it, so a
+    naive "darkens monotonically with pct" rule would get this wrong."""
+    assert _readable_text_color(50) == "#31333F"
 
 
 def test_profile_missing_when_neither_ftp_nor_hr_profile_is_set() -> None:

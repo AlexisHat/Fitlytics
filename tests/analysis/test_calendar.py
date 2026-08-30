@@ -169,45 +169,31 @@ def test_build_calendar_rejects_an_out_of_range_month() -> None:
 
 
 def test_training_load_intensity_pct_rest_day_is_zero() -> None:
-    assert training_load_intensity_pct([0.0, 50.0, 100.0], 0.0) == 0
+    assert training_load_intensity_pct(0.0) == 0
 
 
-def test_training_load_intensity_pct_scales_linearly_to_the_hardest_day() -> None:
-    loads = [0.0, 50.0, 100.0, 150.0, 200.0]
+def test_training_load_intensity_pct_scales_linearly_to_the_reference_tss() -> None:
+    percentages = [
+        training_load_intensity_pct(value) for value in (0.0, 62.5, 125.0, 250.0)
+    ]
 
-    percentages = [training_load_intensity_pct(loads, value) for value in loads]
-
-    assert percentages == [0, 25, 50, 75, 100]
+    assert percentages == [0, 25, 50, 100]
 
 
-def test_training_load_intensity_pct_single_effort_is_100_percent() -> None:
-    """One positive load has nothing to scale against but itself, so it is
-    trivially this calendar's heaviest day."""
-    assert training_load_intensity_pct([0.0, 0.0, 42.0], 42.0) == 100
+def test_training_load_intensity_pct_caps_above_the_reference_tss() -> None:
+    assert training_load_intensity_pct(500.0) == 100
 
 
 def test_training_load_intensity_pct_stays_within_bounds() -> None:
-    loads = [0.0, 10.0, 500.0, 1000.0, 20.0, 30.0]
-
-    for value in loads:
-        assert 0 <= training_load_intensity_pct(loads, value) <= 100
+    for value in (0.0, 10.0, 500.0, 1000.0, 20.0, 30.0):
+        assert 0 <= training_load_intensity_pct(value) <= 100
 
 
 def test_training_load_intensity_pct_rejects_a_negative_value() -> None:
     with pytest.raises(deal.PreContractError):
-        training_load_intensity_pct([0.0, 50.0], -1.0)
+        training_load_intensity_pct(-1.0)
 
 
-@given(
-    loads=st.lists(st.floats(min_value=0, max_value=1e6, allow_nan=False), min_size=1),
-    value=st.floats(min_value=0, max_value=1e6, allow_nan=False),
-)
-def test_training_load_intensity_pct_is_always_within_bounds(
-    loads: list[float], value: float
-) -> None:
-    assert 0 <= training_load_intensity_pct(loads, value) <= 100
-
-
-@given(loads=st.lists(st.floats(min_value=0, max_value=1e6, allow_nan=False)))
-def test_training_load_intensity_pct_zero_is_always_zero(loads: list[float]) -> None:
-    assert training_load_intensity_pct(loads, 0.0) == 0
+@given(value=st.floats(min_value=0, max_value=1e6, allow_nan=False))
+def test_training_load_intensity_pct_is_always_within_bounds(value: float) -> None:
+    assert 0 <= training_load_intensity_pct(value) <= 100

@@ -4,12 +4,23 @@ from calendar import monthrange
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
+from typing import Final
 
 import deal
 from pydantic import BaseModel, NonNegativeFloat
 
 from analysis.load import training_load
 from models import Workout
+
+_REFERENCE_TSS: Final = 250
+"""TSS at which a day's calendar colour reaches 100%. Picked by the athlete
+to subjectively match how their own sessions feel, not a published zone
+boundary. Fixed rather than relative to the days shown, so a given workout's
+colour no longer depends on what else happened in its calendar month or view
+— see docs/entscheidungen.md. TRIMP days (no power meter or FTP) are scaled
+on the same fixed number, which is not on a comparable scale; accepted for
+this single-athlete, power-meter-first app rather than building out a second
+reference for the rarely-used fallback."""
 
 
 class CalendarDay(BaseModel):
@@ -115,37 +126,30 @@ def build_calendar(
 
 @deal.pre(lambda _: _.value >= 0)
 @deal.post(lambda result: 0 <= result <= 100)
-def training_load_intensity_pct(loads: Sequence[float], value: float) -> int:
-    """Scale a day's training load to 0-100% relative to this calendar's hardest day.
+def training_load_intensity_pct(value: float) -> int:
+    """Scale a day's training load to a fixed 0-100% intensity.
 
-    The hardest positive load in ``loads`` is 100%, a rest day is 0%, and
-    every day in between is placed linearly, so what counts as "hard"
-    adapts to this session's own data instead of a fixed absolute TSS/TRIMP
-    threshold that would mean nothing without a long training history to
-    calibrate it against.
+    ``_REFERENCE_TSS`` is 100%, a rest day is 0%, and every load in between
+    is placed linearly; a load above the reference is capped at 100%. Fixed
+    rather than relative to any calendar range, so a workout's colour is the
+    same no matter which month it is viewed in.
 
     Args:
-        loads: Every day's training load in the calendar range being drawn,
-            including rest days (0.0); used only to find the reference
-            maximum, not to look up ``value`` itself.
         value: The training load of the day being scaled; must be
             non-negative.
 
     Returns:
         0 for a rest day (``value == 0``); otherwise how hard ``value`` is
-        relative to the hardest positive load in ``loads``, as a percentage
-        from 1 to 100.
+        relative to ``_REFERENCE_TSS``, as a percentage from 1 to 100.
 
-    >>> loads = [0.0, 50.0, 100.0, 200.0]
-    >>> training_load_intensity_pct(loads, 0.0)
+    >>> training_load_intensity_pct(0.0)
     0
-    >>> training_load_intensity_pct(loads, 100.0)
+    >>> training_load_intensity_pct(125.0)
     50
-    >>> training_load_intensity_pct(loads, 200.0)
+    >>> training_load_intensity_pct(400.0)
     100
     """
     if value <= 0:
         return 0
 
-    hardest = max((load for load in loads if load > 0), default=value)
-    return round(min(value, hardest) / hardest * 100)
+    return round(min(value, _REFERENCE_TSS) / _REFERENCE_TSS * 100)

@@ -1,13 +1,14 @@
 """Render the central calendar view: one month at a time, with navigation.
 
-A trained day's button is tinted blue by how hard it was, relative to the
-hardest day in the shown month — see ``docs/entscheidungen.md``
-(Meilenstein 9) for why the scale is relative rather than a fixed
-threshold.
+A trained day's button is tinted green-to-red by how hard it was, on a fixed
+0-100% scale — see ``docs/entscheidungen.md`` (Meilenstein 9) for why the
+scale is a fixed TSS reference rather than relative to the shown month, and
+why it runs through multiple hues instead of staying in one.
 """
 
 from collections.abc import Sequence
 from datetime import date, timedelta
+from itertools import pairwise
 from typing import Final
 
 import streamlit as st
@@ -33,42 +34,88 @@ _MONTH_LABELS = (
     "Dezember",
 )
 
-_INTENSITY_LIGHT: Final = (219, 234, 254)
-"""RGB for 0% intensity (Tailwind blue-100)."""
+_IntensityStop = tuple[int, tuple[int, int, int]]
 
-_INTENSITY_DARK: Final = (23, 37, 84)
-"""RGB for 100% intensity (Tailwind blue-950)."""
+_INTENSITY_STOPS: Final[tuple[_IntensityStop, ...]] = (
+    (0, (187, 247, 208)),  # green-200 — light effort
+    (25, (74, 222, 128)),  # green-400
+    (50, (250, 204, 21)),  # yellow-400
+    (75, (251, 146, 60)),  # orange-400
+    (100, (220, 38, 38)),  # red-600 — hardest effort
+)
+"""Colour stops for the 0-100 intensity scale: green through yellow and
+orange to red. A hue progression separates mid-range values far better than
+a single-hue lightness ramp, where e.g. 40% and 60% intensity looked almost
+identical — see docs/entscheidungen.md."""
 
-_DARK_TEXT_THRESHOLD_PCT: Final = 50
-"""From this intensity on, the background is dark enough that white text
-reads better than the theme's default dark text."""
+_BRIGHTNESS_THRESHOLD: Final = 150
+"""Below this perceived brightness (YIQ formula, 0-255), white text reads
+better against the intensity background than the theme's dark text."""
+
+
+def _intensity_rgb(pct: int) -> tuple[int, int, int]:
+    """Interpolate an RGB colour for a 0-100 intensity along ``_INTENSITY_STOPS``.
+
+    >>> _intensity_rgb(0)
+    (187, 247, 208)
+    >>> _intensity_rgb(50)
+    (250, 204, 21)
+    >>> _intensity_rgb(100)
+    (220, 38, 38)
+    """
+    for (lo_pct, lo_rgb), (hi_pct, hi_rgb) in pairwise(_INTENSITY_STOPS):
+        if lo_pct <= pct <= hi_pct:
+            fraction = (pct - lo_pct) / (hi_pct - lo_pct)
+            lo_r, lo_g, lo_b = lo_rgb
+            hi_r, hi_g, hi_b = hi_rgb
+            return (
+                round(lo_r + (hi_r - lo_r) * fraction),
+                round(lo_g + (hi_g - lo_g) * fraction),
+                round(lo_b + (hi_b - lo_b) * fraction),
+            )
+    raise AssertionError(f"pct {pct} outside the range _INTENSITY_STOPS covers")
+
+
+def _perceived_brightness(rgb: tuple[int, int, int]) -> float:
+    """YIQ perceived brightness of an RGB colour, 0 (black) to 255 (white).
+
+    >>> round(_perceived_brightness((255, 255, 255)))
+    255
+    >>> round(_perceived_brightness((0, 0, 0)))
+    0
+    """
+    r, g, b = rgb
+    return (r * 299 + g * 587 + b * 114) / 1000
 
 
 def _intensity_color(pct: int) -> str:
-    """Interpolate a light-to-dark blue background for a 0-100 intensity.
+    """Format the interpolated intensity colour as a CSS hex string.
 
     >>> _intensity_color(0)
-    '#dbeafe'
+    '#bbf7d0'
     >>> _intensity_color(100)
-    '#172554'
+    '#dc2626'
     """
-    fraction = pct / 100
-    channels = (
-        round(light + (dark - light) * fraction)
-        for light, dark in zip(_INTENSITY_LIGHT, _INTENSITY_DARK, strict=True)
-    )
-    return "#{:02x}{:02x}{:02x}".format(*channels)
+    return "#{:02x}{:02x}{:02x}".format(*_intensity_rgb(pct))
 
 
 def _readable_text_color(pct: int) -> str:
     """Pick white or the theme's dark text so the day number stays legible.
 
+    Reads the actual interpolated background's brightness rather than
+    assuming it darkens monotonically with ``pct`` — true for the old
+    single-hue blue ramp, but not for a multi-hue one where e.g. the yellow
+    midpoint is brighter than the green step before it.
+
     >>> _readable_text_color(0)
+    '#31333F'
+    >>> _readable_text_color(50)
     '#31333F'
     >>> _readable_text_color(100)
     '#FFFFFF'
     """
-    return "#FFFFFF" if pct >= _DARK_TEXT_THRESHOLD_PCT else "#31333F"
+    brightness = _perceived_brightness(_intensity_rgb(pct))
+    return "#31333F" if brightness >= _BRIGHTNESS_THRESHOLD else "#FFFFFF"
 
 
 def _profile_missing(
@@ -190,26 +237,23 @@ def _day_tooltip(day: CalendarDay, pct: int) -> str:
     return f"{names} — {pct}%"
 
 
-def _render_day_button(
-    column: DeltaGenerator, day: CalendarDay, loads: list[float]
-) -> None:
+def _render_day_button(column: DeltaGenerator, day: CalendarDay) -> None:
     """Render one clickable day cell and update selected_date on click.
 
-    A trained day's button is tinted blue by its intensity relative to the
-    hardest day in ``loads`` (see :func:`_intensity_color`); a rest day
-    keeps Streamlit's plain secondary button style.
+    A trained day's button is tinted green-to-red by its fixed-scale
+    intensity (see :func:`_intensity_color`); a rest day keeps Streamlit's
+    plain secondary button style.
 
     Args:
         column: The grid column to render the button into.
         day: The day this cell represents.
-        loads: Every visible day's training load, for intensity scaling.
     """
     has_workouts = bool(day.workouts)
     label = f"**{day.date.day}**" if has_workouts else str(day.date.day)
     key = f"calendar_day_{day.date.isoformat()}"
 
     if has_workouts:
-        pct = training_load_intensity_pct(loads, day.training_load)
+        pct = training_load_intensity_pct(day.training_load)
         color = _intensity_color(pct)
         text_color = _readable_text_color(pct)
         column.html(
@@ -301,7 +345,6 @@ def render_calendar(
         )
 
     days = build_calendar(workouts, month.year, month.month, ftp_watts, hr_rest, hr_max)
-    loads = [day.training_load for day in days]
 
     header_columns = st.columns(7)
     for column, label in zip(header_columns, _WEEKDAY_LABELS, strict=True):
@@ -313,6 +356,6 @@ def render_calendar(
             if day is None:
                 column.write("")
             else:
-                _render_day_button(column, day, loads)
+                _render_day_button(column, day)
 
     return days
