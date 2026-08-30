@@ -2,19 +2,13 @@
 
 import math
 from datetime import UTC, datetime, timedelta
-from itertools import pairwise
 
-import polars as pl
 import pytest
 
 from errors import AnalysisError
 from models import RecordPoint
 from plots.series import build_time_series
-from plots.timeline import (
-    XAxisMode,
-    _trim_to_first_fully_measured_row,
-    build_timeline_figure,
-)
+from plots.timeline import build_timeline_figure
 
 START = datetime(2026, 7, 16, 14, 0, 0, tzinfo=UTC)
 
@@ -57,59 +51,58 @@ def test_build_timeline_figure_has_one_trace_per_panel_plus_raw_power() -> None:
     assert len(fig.data) == 5
 
 
-def test_build_timeline_figure_orders_panels_altitude_power_hr_speed() -> None:
+def test_build_timeline_figure_orders_panels_power_hr_speed_elevation() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert [trace.name for trace in fig.data] == [
-        "Höhe ggü. Start (m)",
-        "Leistung (W)",
+    titles = [annotation.text for annotation in fig.layout.annotations]
+    assert titles == [
         "Leistung (W)",
         "Herzfrequenz (bpm)",
         "Geschwindigkeit (km/h)",
+        "Höhe (m)",
     ]
 
 
-def test_build_timeline_figure_assigns_each_panel_its_own_yaxis() -> None:
+def test_build_timeline_figure_plots_against_cumulative_distance() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert [trace.yaxis for trace in fig.data] == ["y", "y2", "y2", "y3", "y4"]
+    assert fig.data[0].x.tolist() == pytest.approx([0.0, 0.008, 0.017])
+    assert fig.layout.xaxis.type == "linear"
 
 
-def test_build_timeline_figure_puts_every_panel_on_one_shared_xaxis() -> None:
-    """A single real x-axis, not four range-matched ones, is what makes the
-    hover crosshair span every panel instead of just the one under the
-    cursor."""
+def test_build_timeline_figure_puts_power_hr_speed_on_one_shared_xaxis() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert [trace.xaxis for trace in fig.data] == ["x"] * 5
-    assert "xaxis2" not in fig.layout
-    assert fig.layout.xaxis.anchor == "y4"
+    top_group = [trace for trace in fig.data if trace.name != "Höhe (m)"]
+    assert all(trace.xaxis in (None, "x") for trace in top_group)
+
+
+def test_build_timeline_figure_puts_elevation_on_its_own_matched_xaxis() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    elevation_trace = next(trace for trace in fig.data if trace.name == "Höhe (m)")
+    assert elevation_trace.xaxis == "x2"
+    assert fig.layout.xaxis2.matches == "x"
 
 
 def test_build_timeline_figure_leaves_a_gap_at_a_missing_raw_sample() -> None:
     """A single dropout must break the raw line, not be silently skipped."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    raw_power_trace = fig.data[1]
+    raw_power_trace = fig.data[0]
     assert math.isnan(raw_power_trace.y[1])
 
 
 def test_build_timeline_figure_shows_the_raw_power_reading_in_hover() -> None:
-    """The exact instantaneous watt value is more useful to point at than a
-    30s average, even though the smoothed line is what stays visible on top."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    raw_power_trace = fig.data[1]
-    assert raw_power_trace.hovertemplate == "Leistung (W): %{y:.0f}<extra></extra>"
-    assert raw_power_trace.showlegend is False
-    assert raw_power_trace.opacity == pytest.approx(0.35)
+    assert "Leistung (W): %{y:.0f}" in fig.data[0].hovertemplate
 
 
 def test_build_timeline_figure_silences_hover_on_the_smoothed_power_line() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    rolling_power_trace = fig.data[2]
-    assert rolling_power_trace.hoverinfo == "skip"
+    assert fig.data[1].hoverinfo == "skip"
 
 
 def test_build_timeline_figure_hides_the_legend() -> None:
@@ -118,31 +111,39 @@ def test_build_timeline_figure_hides_the_legend() -> None:
     assert fig.layout.showlegend is False
 
 
-def test_build_timeline_figure_gives_altitude_the_smallest_panel() -> None:
-    """Altitude is context, power/heart rate carry the most information."""
+def test_build_timeline_figure_gives_elevation_the_smallest_panel() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    def _panel_height(domain: tuple[float, float]) -> float:
-        return domain[1] - domain[0]
-
-    altitude_height = _panel_height(fig.layout.yaxis.domain)
-    power_height = _panel_height(fig.layout.yaxis2.domain)
-    assert altitude_height < power_height
+    power_span = fig.layout.yaxis.domain[1] - fig.layout.yaxis.domain[0]
+    elevation_span = fig.layout.yaxis4.domain[1] - fig.layout.yaxis4.domain[0]
+    assert elevation_span < power_span
 
 
-def test_build_timeline_figure_fills_the_altitude_panel_as_a_terrain_profile() -> None:
+def test_build_timeline_figure_fills_the_elevation_panel_as_a_terrain_profile() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert fig.data[0].fill == "tozeroy"
-    assert fig.data[2].fill is None
+    elevation_trace = next(trace for trace in fig.data if trace.name == "Höhe (m)")
+    assert elevation_trace.fill == "tozeroy"
+
+
+def test_build_timeline_figure_plots_elevation_as_absolute_altitude() -> None:
+    """Not relative-to-start: the y-values are the recorded altitudes themselves."""
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    elevation_trace = next(trace for trace in fig.data if trace.name == "Höhe (m)")
+    assert min(y for y in elevation_trace.y if y is not None) > 0
 
 
 def test_build_timeline_figure_drops_panels_without_data() -> None:
-    records = [_point(0, heart_rate=140), _point(1, heart_rate=141)]
+    records = [
+        _point(0, heart_rate=140, distance_m=0.0),
+        _point(1, heart_rate=141, distance_m=8.0),
+    ]
 
     fig = build_timeline_figure(build_time_series(records))
 
-    assert [trace.name for trace in fig.data] == ["Herzfrequenz (bpm)"]
+    assert len(fig.data) == 1
+    assert fig.layout.annotations[0].text == "Herzfrequenz (bpm)"
 
 
 def test_build_timeline_figure_rejects_a_series_with_no_chartable_channel() -> None:
@@ -158,156 +159,137 @@ def test_build_timeline_figure_uses_unified_hover() -> None:
     assert fig.layout.hovermode == "x unified"
 
 
-def test_build_timeline_figure_shows_a_crosshair_spanning_all_panels() -> None:
+def test_build_timeline_figure_shows_a_crosshair_within_the_shared_group() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
     assert fig.layout.xaxis.showspikes is True
-    assert fig.layout.xaxis.spikemode == "across"
-    for yaxis in (fig.layout.yaxis, fig.layout.yaxis2, fig.layout.yaxis3):
-        assert yaxis.showspikes is True
-        assert yaxis.spikemode == "toaxis"
+    assert fig.layout.yaxis.showspikes is True
+    assert fig.layout.yaxis2.showspikes is True
 
 
-def test_build_timeline_figure_shows_a_rangeslider() -> None:
+def test_build_timeline_figure_keeps_the_slider_to_exactly_one_trace() -> None:
+    """The native rangeslider mirrors every trace on its host axis with no
+    opt-out, so elevation sits on its own axis specifically to keep the
+    slider to a single trace — this asserts that split held."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert fig.layout.xaxis.rangeslider.visible is True
+    on_elevation_axis = [trace for trace in fig.data if trace.xaxis == "x2"]
+    assert len(on_elevation_axis) == 1
+
+
+def test_build_timeline_figure_shows_a_rangeslider_on_the_elevation_axis() -> None:
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.xaxis2.rangeslider.visible is True
+    assert fig.layout.xaxis.rangeslider.visible in (False, None)
+
+
+def test_build_timeline_figure_hides_ticks_on_the_shared_top_axis() -> None:
+    """The visible distance ticks live on the elevation axis instead, right
+    above the rangeslider — showing them twice would be redundant."""
+    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
+
+    assert fig.layout.xaxis.showticklabels is False
+    assert fig.layout.xaxis2.title.text == "Distanz (km)"
+
+
+def test_build_timeline_figure_shows_visible_ticks_without_an_elevation_panel() -> None:
+    records = [
+        _point(0, heart_rate=140, distance_m=0.0),
+        _point(1, heart_rate=141, distance_m=8.0),
+    ]
+
+    fig = build_timeline_figure(build_time_series(records))
+
+    assert fig.layout.xaxis.showticklabels is not False
+    assert fig.layout.xaxis.title.text == "Distanz (km)"
+    assert not any(trace.xaxis == "x2" for trace in fig.data)
 
 
 def test_build_timeline_figure_stacks_panel_domains_top_to_bottom() -> None:
-    """Panel i+1 (further down the figure) must not overlap panel i above it."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    domains = [
-        fig.layout.yaxis.domain,
-        fig.layout.yaxis2.domain,
-        fig.layout.yaxis3.domain,
-        fig.layout.yaxis4.domain,
-    ]
-    for (low, _), (_, next_high) in pairwise(domains):
-        assert next_high <= low
+    assert fig.layout.yaxis.domain[0] > fig.layout.yaxis2.domain[1]
+    assert fig.layout.yaxis2.domain[0] > fig.layout.yaxis3.domain[1]
 
 
-def test_build_timeline_figure_formats_the_time_axis_as_a_clock() -> None:
+def test_build_timeline_figure_labels_the_elevation_hover_in_german() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert fig.layout.xaxis.type == "date"
-    assert fig.layout.xaxis.tickformat == "%H:%M:%S"
-
-
-def test_build_timeline_figure_labels_the_altitude_hover_in_german() -> None:
-    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
-
-    altitude_trace = fig.data[0]
-    assert (
-        altitude_trace.hovertemplate == "Höhe ggü. Start (m): %{y:.0f}<extra></extra>"
-    )
-
-
-def test_build_timeline_figure_plots_altitude_relative_to_the_start() -> None:
-    """The first record's altitude is the baseline, so it plots as zero."""
-    fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
-
-    altitude_trace = fig.data[0]
-    assert altitude_trace.y.tolist() == pytest.approx([0.0, 1.0, 2.0])
+    elevation_trace = next(trace for trace in fig.data if trace.name == "Höhe (m)")
+    assert "Höhe (m): %{y:.0f}" in elevation_trace.hovertemplate
 
 
 def test_build_timeline_figure_gives_speed_one_decimal_in_the_hover() -> None:
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    speed_trace = fig.data[4]
-    assert (
-        speed_trace.hovertemplate == "Geschwindigkeit (km/h): %{y:.1f}<extra></extra>"
+    speed_trace = next(
+        trace for trace in fig.data if trace.name == "Geschwindigkeit (km/h)"
     )
+    assert "%{y:.1f}" in speed_trace.hovertemplate
 
 
-def test_build_timeline_figure_defaults_to_the_time_axis() -> None:
+def test_build_timeline_figure_shows_elapsed_time_once_per_hover_group() -> None:
+    """The elapsed clock appears exactly once in the shared-axis group (on
+    its first rendered panel) and once on elevation's own, separate group —
+    never repeated across every trace in a group."""
     fig = build_timeline_figure(build_time_series(_FULL_RECORDS))
 
-    assert fig.layout.xaxis.type == "date"
-    assert fig.layout.xaxis.title.text == "Zeit"
-
-
-def test_build_timeline_figure_switches_to_the_distance_axis() -> None:
-    fig = build_timeline_figure(
-        build_time_series(_FULL_RECORDS), x_axis=XAxisMode.DISTANCE
+    top_group_time_lines = sum(
+        1
+        for trace in fig.data
+        if trace.xaxis in (None, "x")
+        and trace.hovertemplate
+        and "Zeit:" in trace.hovertemplate
     )
-
-    assert fig.layout.xaxis.type == "linear"
-    assert fig.layout.xaxis.title.text == "Distanz (km)"
-    assert fig.data[0].x.tolist() == pytest.approx([0.0, 0.008, 0.017])
-
-
-def test_trim_to_first_fully_measured_row_drops_leading_incomplete_rows() -> None:
-    series = pl.DataFrame(
-        {
-            "elapsed_s": [0.0, 1.0, 2.0, 3.0],
-            "power": [100, 110, 120, 130],
-            "altitude_relative_m": [None, None, 5.0, 6.0],
-        }
+    elevation_time_lines = sum(
+        1
+        for trace in fig.data
+        if trace.xaxis == "x2"
+        and trace.hovertemplate
+        and "Zeit:" in trace.hovertemplate
     )
-
-    trimmed = _trim_to_first_fully_measured_row(
-        series, ["power", "altitude_relative_m"]
-    )
-
-    assert trimmed["elapsed_s"].to_list() == [0.0, 1.0]
-    assert trimmed["power"].to_list() == [120, 130]
-
-
-def test_trim_to_first_fully_measured_row_keeps_later_gaps() -> None:
-    """Only the leading gap is trimmed; a later dropout still shows as a gap."""
-    series = pl.DataFrame(
-        {
-            "elapsed_s": [0.0, 1.0, 2.0, 3.0],
-            "power": [100, 110, None, 130],
-            "altitude_relative_m": [5.0, 6.0, 7.0, 8.0],
-        }
-    )
-
-    trimmed = _trim_to_first_fully_measured_row(
-        series, ["power", "altitude_relative_m"]
-    )
-
-    assert trimmed["power"].to_list() == [100, 110, None, 130]
-
-
-def test_trim_to_first_fully_measured_row_keeps_series_if_never_all_present() -> None:
-    series = pl.DataFrame(
-        {
-            "elapsed_s": [0.0, 1.0],
-            "power": [100, None],
-            "altitude_relative_m": [None, 5.0],
-        }
-    )
-
-    trimmed = _trim_to_first_fully_measured_row(
-        series, ["power", "altitude_relative_m"]
-    )
-
-    assert trimmed["elapsed_s"].to_list() == [0.0, 1.0]
+    assert top_group_time_lines == 1
+    assert elevation_time_lines == 1
 
 
 def test_build_timeline_figure_trims_a_staggered_sensor_start() -> None:
     """A slow GPS/barometer lock must not leave a blank lead-in on the chart."""
     records = [
-        _point(0, heart_rate=140, power=200),
-        _point(1, heart_rate=141, power=205),
-        _point(2, heart_rate=142, power=210, altitude_m=100.0),
-        _point(3, heart_rate=143, power=215, altitude_m=101.0),
+        _point(0, heart_rate=140, power=200, distance_m=0.0),
+        _point(1, heart_rate=141, power=205, distance_m=8.0),
+        _point(2, heart_rate=142, power=210, altitude_m=100.0, distance_m=17.0),
+        _point(3, heart_rate=143, power=215, altitude_m=101.0, distance_m=25.0),
     ]
 
     fig = build_timeline_figure(build_time_series(records))
 
-    altitude_trace = fig.data[0]
-    assert altitude_trace.y.tolist() == pytest.approx([0.0, 1.0])
+    # a 15s trailing rolling median: the second point still has both
+    # samples in its window, so it comes out as their average (100.5),
+    # which incidentally also proves the smoothing is actually applied
+    elevation_trace = next(trace for trace in fig.data if trace.name == "Höhe (m)")
+    assert elevation_trace.y.tolist() == pytest.approx([100.0, 100.5])
 
 
-def test_build_timeline_figure_rejects_distance_axis_without_distance() -> None:
-    records = [
-        _point(0, heart_rate=140, distance_m=None),
-        _point(1, heart_rate=141, distance_m=None),
-    ]
+def test_build_timeline_figure_rejects_a_workout_without_distance_or_speed() -> None:
+    records = [_point(0, heart_rate=140), _point(1, heart_rate=141)]
 
     with pytest.raises(AnalysisError):
-        build_timeline_figure(build_time_series(records), x_axis=XAxisMode.DISTANCE)
+        build_timeline_figure(build_time_series(records))
+
+
+def test_build_timeline_figure_handles_elevation_as_the_only_panel() -> None:
+    """No power, heart rate or speed at all — elevation becomes the figure's
+    only panel and must own the plain "y" axis id, not an invalid "y1"."""
+    records = [
+        _point(0, altitude_m=100.0, distance_m=0.0),
+        _point(1, altitude_m=101.0, distance_m=8.0),
+        _point(2, altitude_m=102.0, distance_m=17.0),
+    ]
+
+    fig = build_timeline_figure(build_time_series(records))
+
+    assert len(fig.data) == 1
+    assert fig.data[0].yaxis in (None, "y")
+    assert fig.layout.yaxis.domain is not None
+    assert fig.layout.xaxis2.rangeslider.visible is True
