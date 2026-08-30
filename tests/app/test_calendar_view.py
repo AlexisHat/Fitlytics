@@ -5,10 +5,10 @@ from datetime import UTC, date, datetime
 from analysis.calendar import CalendarDay
 from app.calendar_view import (
     _DARK_TEXT_THRESHOLD_PCT,
+    _day_tooltip,
     _default_month,
     _grid_weeks,
     _intensity_color,
-    _intensity_label,
     _profile_missing,
     _readable_text_color,
     _shift_month,
@@ -60,6 +60,27 @@ def test_grid_weeks_spans_multiple_weeks() -> None:
     assert len(weeks) == 2
 
 
+def test_day_tooltip_shows_a_single_workouts_name_and_load() -> None:
+    workout = _workout(datetime(2026, 7, 16, 14, 0, tzinfo=UTC))
+    day = CalendarDay(date=date(2026, 7, 16), training_load=100.0, workouts=(workout,))
+
+    assert _day_tooltip(day, 78) == "Training am 2026-07-16 — 78%"
+
+
+def test_day_tooltip_joins_multiple_workout_names() -> None:
+    morning = _workout(datetime(2026, 7, 16, 7, 0, tzinfo=UTC)).model_copy(
+        update={"name": "Frühe Grundlage"}
+    )
+    evening = _workout(datetime(2026, 7, 16, 18, 0, tzinfo=UTC)).model_copy(
+        update={"name": "Abendintervalle"}
+    )
+    day = CalendarDay(
+        date=date(2026, 7, 16), training_load=200.0, workouts=(morning, evening)
+    )
+
+    assert _day_tooltip(day, 90) == "Frühe Grundlage, Abendintervalle — 90%"
+
+
 def test_intensity_color_is_light_blue_at_zero_percent() -> None:
     assert _intensity_color(0) == "#dbeafe"
 
@@ -72,14 +93,6 @@ def test_intensity_color_gets_monotonically_darker() -> None:
     colors = [_intensity_color(pct) for pct in range(0, 101, 10)]
 
     assert colors == sorted(colors, reverse=True)
-
-
-def test_intensity_label_covers_rest_day_and_every_quarter() -> None:
-    assert _intensity_label(0) == "Ruhetag"
-    assert _intensity_label(25) == "leicht"
-    assert _intensity_label(50) == "moderat"
-    assert _intensity_label(75) == "hart"
-    assert _intensity_label(100) == "extrem hart"
 
 
 def test_readable_text_color_switches_at_the_threshold() -> None:

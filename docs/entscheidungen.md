@@ -10,30 +10,6 @@
 
 ---
 
-### `pytest`-Exit-Code 5 im pre-commit-Hook
-
-**Entscheidung:** Der Exit-Code 5 (`No tests collected`) wird im pre-commit-Hook als erfolgreicher Lauf behandelt.
-
-**Begründung:** Dadurch schlägt der Hook in frühen Projektphasen ohne Tests nicht unnötig fehl, während echte Testfehler weiterhin erkannt werden.
-
----
-
-### Design by Contract mit `deal`
-
-**Entscheidung:** Für Verträge werden `deal lint` und `deal test` verwendet und als pre-commit-Hooks ausgeführt.
-
-**Begründung:** Dadurch werden Vertragsverletzungen sowohl statisch als auch durch automatisch generierte Tests frühzeitig erkannt.
-
----
-
-### Hypothesis mit CrossHair-Backend
-
-**Entscheidung:** Für ausgewählte Property-Based-Tests wird bei Bedarf das CrossHair-Backend (`hypothesis-crosshair`) eingesetzt.
-
-**Begründung:** Die symbolische Analyse findet Gegenbeispiele zuverlässiger als reines Zufallssampling und eignet sich besonders für Funktionen mit vielen Randbedingungen.
-
----
-
 ## Meilenstein 2: Datenmodelle
 
 ### Datenexploration in einem Jupyter-Notebook
@@ -78,14 +54,6 @@
 **Entscheidung:** `import_fit_file(source: str | Path | IO[bytes])` reicht `source` unverändert an `fitdecode.FitReader` durch, das selbst zwischen Pfad, datei-artigem Objekt und rohen Bytes unterscheidet.
 
 **Begründung:** Dieselbe Funktion funktioniert unverändert mit einem Testpfad (`data/beispiel/...`) und später mit `st.file_uploader()`s `UploadedFile` (Subklasse von `io.BytesIO`) — keine separate Wrapper-Logik nötig.
-
----
-
-### Whoop-Zeitzonenformat: `"UTCZ"` als Sonderfall
-
-**Entscheidung:** Die Spalte „Zeitzone des Zyklus" hat drei reale Werte: `UTC+02:00`, `UTC+01:00` und `UTCZ`. `_parse_utc_offset` behandelt `"UTCZ"` explizit als Sonderfall statt es als `UTC±HH:MM` zu parsen.
-
-**Begründung:** Beim Prüfen der echten CSV festgestellt
 
 ---
 

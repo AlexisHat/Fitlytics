@@ -44,27 +44,6 @@ _DARK_TEXT_THRESHOLD_PCT: Final = 50
 reads better than the theme's default dark text."""
 
 
-def _intensity_label(pct: int) -> str:
-    """Map an intensity percentage to a short German tooltip label.
-
-    >>> _intensity_label(0)
-    'Ruhetag'
-    >>> _intensity_label(50)
-    'moderat'
-    >>> _intensity_label(100)
-    'extrem hart'
-    """
-    if pct == 0:
-        return "Ruhetag"
-    if pct <= 25:
-        return "leicht"
-    if pct <= 50:
-        return "moderat"
-    if pct <= 75:
-        return "hart"
-    return "extrem hart"
-
-
 def _intensity_color(pct: int) -> str:
     """Interpolate a light-to-dark blue background for a 0-100 intensity.
 
@@ -182,6 +161,35 @@ def _grid_weeks(days: tuple[CalendarDay, ...]) -> list[list[CalendarDay | None]]
     return weeks
 
 
+def _day_tooltip(day: CalendarDay, pct: int) -> str:
+    """Build a trained day's tooltip: its workout names and load percentage.
+
+    Names rather than the date, since the date is already the button's own
+    label — the tooltip should add what the label can't show, which is
+    which session(s) this was and how hard.
+
+    Args:
+        day: The day the tooltip is for; must have at least one workout.
+        pct: The day's training-load intensity, from
+            :func:`~analysis.calendar.training_load_intensity_pct`.
+
+    Returns:
+        The workouts' display names, joined with ", " if there is more
+        than one, followed by the load percentage.
+
+    >>> from datetime import UTC, datetime
+    >>> from models import RecordPoint, Workout
+    >>> start = datetime(2026, 7, 16, 14, 0, tzinfo=UTC)
+    >>> records = [RecordPoint(timestamp=start, power=200)]
+    >>> workout = Workout(start_time=start, sport="cycling", records=records)
+    >>> day = CalendarDay(date=start.date(), training_load=50.0, workouts=(workout,))
+    >>> _day_tooltip(day, 42)
+    'Training am 2026-07-16 — 42%'
+    """
+    names = ", ".join(workout.display_name for workout in day.workouts)
+    return f"{names} — {pct}%"
+
+
 def _render_day_button(
     column: DeltaGenerator, day: CalendarDay, loads: list[float]
 ) -> None:
@@ -213,7 +221,7 @@ def _render_day_button(
             f"border-color: {color} !important;"
             "}</style>"
         )
-        help_text = f"{day.date.isoformat()} — {pct}% ({_intensity_label(pct)})"
+        help_text = _day_tooltip(day, pct)
     else:
         help_text = f"{day.date.isoformat()} — Ruhetag"
 
