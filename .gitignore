@@ -27,5 +27,8 @@ wheels/
 data/private/
 *.db
 
+# Beispieltrainings: echte Aufzeichnungen mit GPS-Spur, werden separat weitergegeben
+data/beispiel/trainings/
+
 # Wegwerf-Vorschau-Skripte
 scripts/*.html
