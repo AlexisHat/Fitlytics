@@ -3,7 +3,7 @@
 from calendar import monthrange
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import date
+from datetime import MAXYEAR, MINYEAR, date
 from typing import Final
 
 import deal
@@ -43,6 +43,7 @@ class CalendarDay(BaseModel):
     workouts: tuple[Workout, ...]
 
 
+@deal.pre(lambda _: MINYEAR <= _.year <= MAXYEAR)
 @deal.pre(lambda _: 1 <= _.month <= 12)
 @deal.pre(lambda _: _.ftp_watts is None or _.ftp_watts > 0)
 @deal.pre(lambda _: _.hr_rest is None or _.hr_max is None or _.hr_rest < _.hr_max)
@@ -65,7 +66,8 @@ def build_calendar(
     Args:
         workouts: The workouts to aggregate; those outside ``year``/``month``
             are ignored.
-        year: The calendar year to build.
+        year: The calendar year to build; must be a year ``date`` can
+            represent (1-9999).
         month: The calendar month to build, 1-12.
         ftp_watts: The athlete's Functional Threshold Power, or None if
             unknown; must be positive if given.

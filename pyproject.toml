@@ -15,9 +15,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "crosshair-tool>=0.0.109",
     "deal>=4.24.0",
     "hypothesis>=6.137.0",
-    "hypothesis-crosshair>=0.0.27",
     "interrogate>=1.7.0",
     "mypy>=2.1.0",
     "pre-commit>=4.6.0",

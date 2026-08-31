@@ -168,6 +168,11 @@ def test_build_calendar_rejects_an_out_of_range_month() -> None:
         build_calendar([], 2026, 13, ftp_watts=None, hr_rest=None, hr_max=None)
 
 
+def test_build_calendar_rejects_a_year_outside_the_date_range() -> None:
+    with pytest.raises(deal.PreContractError):
+        build_calendar([], 0, 2, ftp_watts=None, hr_rest=None, hr_max=None)
+
+
 def test_training_load_intensity_pct_rest_day_is_zero() -> None:
     assert training_load_intensity_pct(0.0) == 0
 
