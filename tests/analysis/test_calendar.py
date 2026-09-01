@@ -7,7 +7,11 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from analysis.calendar import build_calendar, training_load_intensity_pct
+from analysis.calendar import (
+    build_calendar,
+    daily_training_load,
+    training_load_intensity_pct,
+)
 from analysis.load import training_load
 from models import RecordPoint, Workout
 
@@ -202,3 +206,63 @@ def test_training_load_intensity_pct_rejects_a_negative_value() -> None:
 @given(value=st.floats(min_value=0, max_value=1e6, allow_nan=False))
 def test_training_load_intensity_pct_is_always_within_bounds(value: float) -> None:
     assert 0 <= training_load_intensity_pct(value) <= 100
+
+
+def test_daily_training_load_leaves_out_days_without_a_workout() -> None:
+    trained = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
+
+    loads = daily_training_load(
+        [_heart_rate_workout(trained)], None, hr_rest=50, hr_max=190
+    )
+
+    assert list(loads) == [date(2026, 7, 16)]
+
+
+def test_daily_training_load_sums_two_workouts_on_the_same_day() -> None:
+    morning = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
+    evening = datetime(2026, 7, 16, 18, 0, tzinfo=UTC)
+    single = daily_training_load(
+        [_heart_rate_workout(morning)], None, hr_rest=50, hr_max=190
+    )
+
+    both = daily_training_load(
+        [_heart_rate_workout(morning), _heart_rate_workout(evening)],
+        None,
+        hr_rest=50,
+        hr_max=190,
+    )
+
+    assert both[date(2026, 7, 16)] == pytest.approx(2 * single[date(2026, 7, 16)])
+
+
+def test_daily_training_load_is_ordered_by_date_whatever_the_input_order() -> None:
+    later = _heart_rate_workout(datetime(2026, 7, 20, 8, 0, tzinfo=UTC))
+    earlier = _heart_rate_workout(datetime(2026, 7, 16, 8, 0, tzinfo=UTC))
+
+    loads = daily_training_load([later, earlier], None, hr_rest=50, hr_max=190)
+
+    assert list(loads) == [date(2026, 7, 16), date(2026, 7, 20)]
+
+
+def test_daily_training_load_drops_a_workout_whose_load_cannot_be_computed() -> None:
+    start = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
+    without_sensors = _workout(start, [RecordPoint(timestamp=start)])
+
+    loads = daily_training_load([without_sensors], None, hr_rest=None, hr_max=None)
+
+    assert loads == {}
+
+
+def test_daily_training_load_agrees_with_the_calendar_for_the_same_day() -> None:
+    start = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
+    workout = _heart_rate_workout(start)
+
+    loads = daily_training_load([workout], None, hr_rest=50, hr_max=190)
+    calendar = build_calendar([workout], 2026, 7, None, hr_rest=50, hr_max=190)
+
+    assert loads[date(2026, 7, 16)] == pytest.approx(calendar[15].training_load)
+
+
+def test_daily_training_load_rejects_a_non_positive_ftp() -> None:
+    with pytest.raises(deal.PreContractError):
+        daily_training_load([], 0, hr_rest=50, hr_max=190)

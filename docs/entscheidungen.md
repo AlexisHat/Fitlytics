@@ -194,7 +194,7 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 
 **Entscheidung:** `power_zone_distribution()` in `analysis/power_zones.py` lässt zwischen vier Zonenmodellen wählen (polarisiert 3, klassisch 5, British Cycling 6, Coggan/Allen 7), Default Coggan/Allen 7.
 
-**Begründung:** Anders als bei HF-Zonen gibt es bei Leistungszonen kein einzelnes Standardmodell — diese vier sind die mir bekannten, gängigsten Einteilungen.
+**Begründung:** Anders als bei HF-Zonen gibt es bei Leistungszonen kein einzelnes Standardmodell diese vier sind die mir bekannten, gängigsten Einteilungen.
 
 ---
 
@@ -262,36 +262,6 @@ NP brauchen wir dagegen ohnehin für spätere Intervall-Analyse, wo es keinen Ge
 **Entscheidung:** `training_load()` in `analysis/load.py` nutzt TSS, wenn die Einheit Leistungsdaten und ein bekanntes FTP hat, sonst TRIMP. `build_calendar()` in `analysis/calendar.py` ordnet ein Workout dem UTC-Datum von `start_time` zu (FIT-Dateien liefern keine lokale Zeitzone) und summiert die Belastung mehrerer Workouts am selben Tag. Ein negativer TRIMP-Wert (HF unter `hr_rest`) wird auf 0 gekappt, ebenso ein Tag, an dem keine der beiden Methoden berechenbar war (kein Leistungsmesser, kein bekanntes HF-Profil) — beides ist im Kalender nicht von einem echten Ruhetag unterscheidbar.
 
 **Begründung:** TSS ist die exaktere Kennzahl bei vorhandenem Powermeter, TRIMP deckt jedes Training über die Herzfrequenz ab. Ruhetage werden im vollständigen Datumsbereich als `training_load=0.0` geführt statt ausgelassen, damit die Kalenderansicht eine lückenlose Wochen-/Tage-Struktur hat.
-
----
-
-### Vier Diagramme aus der Projektskizze: drei abgedeckt, eines bewusst verworfen
-
-**Entscheidung:** "Herzfrequenzverlauf einer Einheit" ist durch den Timeline-Plot abgedeckt, "Trainingsdauer pro Einheit" durch die Kennzahlen-Kachel in der Tagesansicht, "HRV-Verlauf über mehrere Tage" durch den Recovery-Trend auf der neuen Recovery-Seite. Der vierte Punkt, "Vergleich Trainingsbelastung/Recovery", wurde prototypisch gebaut (Balken der Tagesbelastung gegen die Recovery-Quote des Folgetags, zeitlich versetzt gepaart über `analysis.load_recovery`) und danach wieder verworfen.
-
-**Begründung:** Der Prototyp lief fehlerfrei und war technisch korrekt — Belastung an Tag D wurde bewusst gegen die Recovery-Quote von Tag D+1 gestellt, da ein Whoop-Zyklus Schlaf plus Folgetag ist und der Score vor dem Tag feststeht (siehe „Whoop-Tagesbezug: Mittag-zu-Mittag"). Im Praxistest gegen echte Daten bot das Diagramm aber keinen erkennbaren Mehrwert für das Training: bei wenigen Trainingstagen im Verhältnis zu einem Jahr Recovery-Daten bestand die Ansicht überwiegend aus leeren Tagen, und selbst mit mehr Trainingsdaten liefert ein einzelner Balken/Punkt pro Tag keine Aussage, die nicht schon aus der bestehenden Recovery-Übersicht und dem Trainingskalender nebeneinander ablesbar wäre. Eine Umsetzung nur, weil sie in der Projektskizze steht, ohne dass sie dem Training etwas nützt, widerspräche dem Grundsatz "lieber weniger Umfang als ein unfertiges oder wertloses Feature" (CLAUDE.md §1, §7). Die Abweichung von der Minimalanforderung wird hier bewusst in Kauf genommen und im Bericht als solche benannt.
-
----
-
-## Meilenstein 8: Intervallanalyse
-
-### Lokale Baseline: zentriertes rollierendes Quantil (25 %) über 600s statt Median
-
-> **Überholt** — die lokale Baseline wurde später vollständig verworfen, siehe „Bezugsniveau: Zwei-Klassen-Schwelle statt lokaler Baseline" weiter unten.
-
-**Entscheidung:** `compute_baseline()` in `src/intervals/preprocessing.py` legt ein zentriertes rollierendes 25 %-Quantil (`BASELINE_QUANTILE = 0.25`, `BASELINE_WINDOW_S = 600`, `min_samples=1`) über die rohe Leistung, nicht den Median.
-
-**Begründung:** Bei einer Intervall-Session mit hohem Arbeitsanteil (z. B. 5×4 min bei 240s Arbeit zu 180s Pause) ist die Belastung streckenweise die Mehrheit im 600s-Fenster — der Median driftet dann Richtung Blockleistung statt das Erholungsniveau abzubilden, gemessen als Startversatz von 60s auf "5×4 min sauber". Ein niedriges Quantil bleibt am Erholungsniveau verankert, solange ein nennenswerter Anteil des Fensters dort liegt. Randbehandlung weiterhin durch schrumpfendes statt aufgefülltes Fenster.
-
----
-
-### Kandidatensuche: direkte Hysterese-Schwelle statt CUSUM + `scipy`
-
-> **Teilweise überholt** — die Absage an CUSUM und `scipy` gilt weiter, die Hysterese auf der *rohen* Leistung wurde jedoch durch eine einzelne Schwelle auf der geglätteten Leistung ersetzt, siehe „Glättung vor der Erkennung" weiter unten.
-
-**Entscheidung:** Ein erster Entwurf fand Blockkanten über ein kumuliertes Abweichungssignal (CUSUM) mit `scipy.signal.find_peaks`. Das wurde verworfen zugunsten einer einfachen Zwei-Schwellen-Hysterese direkt auf der rohen Leistung gegen die lokale Baseline (`find_threshold_candidates()` in `src/intervals/candidates.py`) — ohne Glättung, ohne kumuliertes Signal, ohne `scipy`.
-
-**Begründung:** Der CUSUM-Ansatz brachte deutlich mehr Code und eine strukturelle Schwäche mit (ein isolierter Block ohne anschließenden Leistungsabfall erzeugt kein für `find_peaks` erkennbares Maximum, siehe frühere Fassung dieses Eintrags) und war für eine als "Sliding Window"-Erkennung skizzierte Aufgabe (Projektskizze) unangemessen aufwendig. Die einfachere Version behebt das CUSUM-Problem nebenbei (kein kumulatives Signal, das "stehen bleiben" kann) und kommt ohne `scipy`/`numpy` aus — beide Abhängigkeiten wieder aus `pyproject.toml` entfernt.
 
 ---
 

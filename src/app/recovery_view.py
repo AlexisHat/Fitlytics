@@ -1,12 +1,14 @@
 """Render the recovery page: Whoop figures over time rather than per day."""
 
+from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import Final
 
 import streamlit as st
 
 from analysis import average
-from models import RecoveryDay
+from analysis.calendar import daily_training_load
+from models import RecoveryDay, Workout
 from plots.recovery_trend import plot_recovery_trend
 
 PERIOD_DAYS: Final[dict[str, int | None]] = {
@@ -71,11 +73,23 @@ def _render_summary(days: list[RecoveryDay]) -> None:
     columns[3].metric("Ø Ruhepuls", f"{average(resting):.0f} bpm" if resting else "–")
 
 
-def render_recovery(days: list[RecoveryDay]) -> None:
+def render_recovery(
+    days: list[RecoveryDay],
+    workouts: Sequence[Workout],
+    ftp_watts: int | None,
+    hr_rest: int | None,
+    hr_max: int | None,
+) -> None:
     """Render the recovery page for every stored Whoop day.
 
     Args:
         days: Every stored recovery day, in chronological order.
+        workouts: Every stored workout, marked onto the chart by how hard
+            it was; an empty sequence simply draws no markers.
+        ftp_watts: The athlete's Functional Threshold Power, or None if
+            unknown — without it a ride's load falls back to TRIMP.
+        hr_rest: The athlete's resting heart rate, or None if unknown.
+        hr_max: The athlete's maximum heart rate, or None if unknown.
     """
     st.subheader("Recovery")
 
@@ -97,4 +111,11 @@ def render_recovery(days: list[RecoveryDay]) -> None:
         return
 
     _render_summary(selected)
-    st.pyplot(plot_recovery_trend(selected))
+    loads = daily_training_load(workouts, ftp_watts, hr_rest, hr_max)
+    st.pyplot(plot_recovery_trend(selected, loads))
+    if loads:
+        st.caption(
+            "Senkrechte Linien markieren Trainingstage, eingefärbt nach der "
+            "Belastung des Tages — grün locker bis rot hart, dieselbe Skala "
+            "wie im Kalender."
+        )

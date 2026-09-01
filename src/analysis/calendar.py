@@ -126,6 +126,69 @@ def build_calendar(
     return tuple(days)
 
 
+@deal.pre(lambda _: _.ftp_watts is None or _.ftp_watts > 0)
+@deal.pre(lambda _: _.hr_rest is None or _.hr_max is None or _.hr_rest < _.hr_max)
+@deal.ensure(lambda _: all(load > 0 for load in _.result.values()))
+def daily_training_load(
+    workouts: Sequence[Workout],
+    ftp_watts: int | None,
+    hr_rest: int | None,
+    hr_max: int | None,
+) -> dict[date, float]:
+    """Sum each day's training load, over any span rather than one month.
+
+    Unlike :func:`build_calendar`, rest days are left out entirely: a caller
+    drawing markers onto a chart wants the days that carry a load, not one
+    entry per day of an arbitrarily long span. Days whose workouts have no
+    computable load (no power meter and no heart-rate profile) drop out for
+    the same reason — nothing to draw.
+
+    Args:
+        workouts: The workouts to aggregate, in any order.
+        ftp_watts: The athlete's Functional Threshold Power, or None if
+            unknown; must be positive if given.
+        hr_rest: The athlete's resting heart rate, or None if unknown; must
+            be lower than hr_max if both are given.
+        hr_max: The athlete's maximum heart rate, or None if unknown.
+
+    Returns:
+        The summed load per calendar day, keyed by the day's UTC date and
+        holding only days with a load above zero.
+
+    Raises:
+        deal.PreContractError: If the profile values are out of range.
+
+    Two rides on the same day are summed into one entry, and the rest day
+    between them never appears:
+
+    >>> from datetime import UTC, datetime, timedelta
+    >>> from models import RecordPoint
+    >>> def ride(day: int, hour: int) -> Workout:
+    ...     start = datetime(2026, 7, day, hour, 0, 0, tzinfo=UTC)
+    ...     return Workout(
+    ...         start_time=start,
+    ...         sport="cycling",
+    ...         records=[
+    ...             RecordPoint(timestamp=start + timedelta(seconds=i), power=200)
+    ...             for i in range(30)
+    ...         ],
+    ...     )
+    >>> loads = daily_training_load(
+    ...     [ride(16, 8), ride(16, 17), ride(18, 8)], 210, hr_rest=50, hr_max=190
+    ... )
+    >>> [day.isoformat() for day in loads]
+    ['2026-07-16', '2026-07-18']
+    >>> loads[date(2026, 7, 16)] == 2 * loads[date(2026, 7, 18)]
+    True
+    """
+    totals: dict[date, float] = defaultdict(float)
+    for workout in workouts:
+        load = training_load(workout, ftp_watts, hr_rest, hr_max)
+        if load is not None and load > 0:
+            totals[workout.start_time.date()] += load
+    return dict(sorted(totals.items()))
+
+
 @deal.pre(lambda _: _.value >= 0)
 @deal.post(lambda result: 0 <= result <= 100)
 def training_load_intensity_pct(value: float) -> int:

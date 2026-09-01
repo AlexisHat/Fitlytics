@@ -8,7 +8,6 @@ why it runs through multiple hues instead of staying in one.
 
 from collections.abc import Sequence
 from datetime import date, timedelta
-from itertools import pairwise
 from typing import Final
 
 import streamlit as st
@@ -16,6 +15,7 @@ from streamlit.delta_generator import DeltaGenerator
 
 from analysis.calendar import CalendarDay, build_calendar, training_load_intensity_pct
 from models import Workout
+from plots.intensity import intensity_color, intensity_rgb
 
 _WEEKDAY_LABELS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 
@@ -34,46 +34,9 @@ _MONTH_LABELS = (
     "Dezember",
 )
 
-_IntensityStop = tuple[int, tuple[int, int, int]]
-
-_INTENSITY_STOPS: Final[tuple[_IntensityStop, ...]] = (
-    (0, (187, 247, 208)),  # green-200 — light effort
-    (25, (74, 222, 128)),  # green-400
-    (50, (250, 204, 21)),  # yellow-400
-    (75, (251, 146, 60)),  # orange-400
-    (100, (220, 38, 38)),  # red-600 — hardest effort
-)
-"""Colour stops for the 0-100 intensity scale: green through yellow and
-orange to red. A hue progression separates mid-range values far better than
-a single-hue lightness ramp, where e.g. 40% and 60% intensity looked almost
-identical — see docs/entscheidungen.md."""
-
 _BRIGHTNESS_THRESHOLD: Final = 150
 """Below this perceived brightness (YIQ formula, 0-255), white text reads
 better against the intensity background than the theme's dark text."""
-
-
-def _intensity_rgb(pct: int) -> tuple[int, int, int]:
-    """Interpolate an RGB colour for a 0-100 intensity along ``_INTENSITY_STOPS``.
-
-    >>> _intensity_rgb(0)
-    (187, 247, 208)
-    >>> _intensity_rgb(50)
-    (250, 204, 21)
-    >>> _intensity_rgb(100)
-    (220, 38, 38)
-    """
-    for (lo_pct, lo_rgb), (hi_pct, hi_rgb) in pairwise(_INTENSITY_STOPS):
-        if lo_pct <= pct <= hi_pct:
-            fraction = (pct - lo_pct) / (hi_pct - lo_pct)
-            lo_r, lo_g, lo_b = lo_rgb
-            hi_r, hi_g, hi_b = hi_rgb
-            return (
-                round(lo_r + (hi_r - lo_r) * fraction),
-                round(lo_g + (hi_g - lo_g) * fraction),
-                round(lo_b + (hi_b - lo_b) * fraction),
-            )
-    raise AssertionError(f"pct {pct} outside the range _INTENSITY_STOPS covers")
 
 
 def _perceived_brightness(rgb: tuple[int, int, int]) -> float:
@@ -86,17 +49,6 @@ def _perceived_brightness(rgb: tuple[int, int, int]) -> float:
     """
     r, g, b = rgb
     return (r * 299 + g * 587 + b * 114) / 1000
-
-
-def _intensity_color(pct: int) -> str:
-    """Format the interpolated intensity colour as a CSS hex string.
-
-    >>> _intensity_color(0)
-    '#bbf7d0'
-    >>> _intensity_color(100)
-    '#dc2626'
-    """
-    return "#{:02x}{:02x}{:02x}".format(*_intensity_rgb(pct))
 
 
 def _readable_text_color(pct: int) -> str:
@@ -114,7 +66,7 @@ def _readable_text_color(pct: int) -> str:
     >>> _readable_text_color(100)
     '#FFFFFF'
     """
-    brightness = _perceived_brightness(_intensity_rgb(pct))
+    brightness = _perceived_brightness(intensity_rgb(pct))
     return "#31333F" if brightness >= _BRIGHTNESS_THRESHOLD else "#FFFFFF"
 
 
@@ -254,7 +206,7 @@ def _render_day_button(column: DeltaGenerator, day: CalendarDay) -> None:
 
     if has_workouts:
         pct = training_load_intensity_pct(day.training_load)
-        color = _intensity_color(pct)
+        color = intensity_color(pct)
         text_color = _readable_text_color(pct)
         column.html(
             f"<style>.st-key-{key} button, "

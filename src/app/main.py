@@ -482,7 +482,13 @@ def main() -> None:
     _render_sidebar()
 
     if _select_page() == _RECOVERY_PAGE:
-        render_recovery(st.session_state.recovery_days)
+        render_recovery(
+            st.session_state.recovery_days,
+            st.session_state.workouts,
+            st.session_state.ftp_watts,
+            st.session_state.hr_rest,
+            st.session_state.hr_max,
+        )
         return
 
     _render_import_log()
