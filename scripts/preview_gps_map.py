@@ -8,7 +8,7 @@ from plots.series import build_time_series
 from readers.fit import import_fit_file
 from validation.workout import validate_workout
 
-DEFAULT_SOURCE = Path("data/private/07-162x8minFTP.fit")
+DEFAULT_SOURCE = Path("data/beispiel/fit/07-162x8minFTP.fit")
 DEFAULT_METRIC = MetricKey.POWER
 OUTPUT = Path("scripts/gps_map_preview.html")
 

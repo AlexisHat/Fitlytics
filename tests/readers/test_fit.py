@@ -9,9 +9,9 @@ import pytest
 from errors import FileImportError
 from readers.fit import _build_record_point, _semicircles_to_degrees, import_fit_file
 
-VALID_FIXTURE = Path("data/beispiel/training_gueltig.fit")
-EMPTY_FIXTURE = Path("data/beispiel/training_leer.fit")
-BROKEN_FIXTURE = Path("data/beispiel/training_defekt.fit")
+VALID_FIXTURE = Path("data/beispiel/fixtures/training_gueltig.fit")
+EMPTY_FIXTURE = Path("data/beispiel/fixtures/training_leer.fit")
+BROKEN_FIXTURE = Path("data/beispiel/fixtures/training_defekt.fit")
 
 
 def test_import_fit_file_reads_valid_fixture() -> None:
@@ -57,7 +57,7 @@ def test_import_fit_file_accepts_bytes_buffer() -> None:
 
 def test_import_fit_file_rejects_missing_path() -> None:
     with pytest.raises(FileImportError):
-        import_fit_file(Path("data/beispiel/does_not_exist.fit"))
+        import_fit_file(Path("data/beispiel/fixtures/does_not_exist.fit"))
 
 
 def test_import_fit_file_rejects_broken_file() -> None:

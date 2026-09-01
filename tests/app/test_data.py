@@ -13,13 +13,13 @@ from app.data import (
 from models import PlannedIntervalSpec, WorkoutCategory
 from storage.schema import init_db
 
-VALID_FIT = Path("data/beispiel/training_gueltig.fit")
-BROKEN_FIT = Path("data/beispiel/training_defekt.fit")
-EMPTY_FIT = Path("data/beispiel/training_leer.fit")
+VALID_FIT = Path("data/beispiel/fixtures/training_gueltig.fit")
+BROKEN_FIT = Path("data/beispiel/fixtures/training_defekt.fit")
+EMPTY_FIT = Path("data/beispiel/fixtures/training_leer.fit")
 
-VALID_CSV = Path("data/beispiel/physiologische_zyklen_gueltig.csv")
-BROKEN_CSV = Path("data/beispiel/physiologische_zyklen_defekt.csv")
-EMPTY_CSV = Path("data/beispiel/physiologische_zyklen_leer.csv")
+VALID_CSV = Path("data/beispiel/fixtures/physiologische_zyklen_gueltig.csv")
+BROKEN_CSV = Path("data/beispiel/fixtures/physiologische_zyklen_defekt.csv")
+EMPTY_CSV = Path("data/beispiel/fixtures/physiologische_zyklen_leer.csv")
 
 
 def test_import_workouts_imports_valid_fixture() -> None:

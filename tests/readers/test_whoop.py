@@ -10,9 +10,9 @@ import pytest
 from errors import FileImportError
 from readers.whoop import _build_recovery_day, _parse_utc_offset, import_whoop_csv
 
-VALID_FIXTURE = Path("data/beispiel/physiologische_zyklen_gueltig.csv")
-EMPTY_FIXTURE = Path("data/beispiel/physiologische_zyklen_leer.csv")
-BROKEN_FIXTURE = Path("data/beispiel/physiologische_zyklen_defekt.csv")
+VALID_FIXTURE = Path("data/beispiel/fixtures/physiologische_zyklen_gueltig.csv")
+EMPTY_FIXTURE = Path("data/beispiel/fixtures/physiologische_zyklen_leer.csv")
+BROKEN_FIXTURE = Path("data/beispiel/fixtures/physiologische_zyklen_defekt.csv")
 
 
 def test_import_whoop_csv_reads_valid_fixture() -> None:
@@ -49,7 +49,7 @@ def test_import_whoop_csv_accepts_bytes_buffer() -> None:
 
 def test_import_whoop_csv_rejects_missing_path() -> None:
     with pytest.raises(FileImportError):
-        import_whoop_csv(Path("data/beispiel/does_not_exist.csv"))
+        import_whoop_csv(Path("data/beispiel/fixtures/does_not_exist.csv"))
 
 
 def test_import_whoop_csv_rejects_broken_file() -> None:

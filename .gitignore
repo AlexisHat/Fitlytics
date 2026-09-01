@@ -27,8 +27,10 @@ wheels/
 data/private/
 *.db
 
-# Beispieltrainings: echte Aufzeichnungen mit GPS-Spur, werden separat weitergegeben
-data/beispiel/trainings/
+# Demodaten: echte Aufzeichnungen (GPS-Spur) und echte Whoop-Gesundheitswerte,
+# werden separat weitergegeben statt eingecheckt
+data/beispiel/fit/
+data/beispiel/whoop/
 
 # Wegwerf-Vorschau-Skripte
 scripts/*.html

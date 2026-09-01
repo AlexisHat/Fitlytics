@@ -51,24 +51,18 @@ Unter **„FIT-Dateien (Trainings)"** lassen sich beliebig viele `.fit`-Dateien 
 Zu jeder Datei werden in der Seitenleiste Titel und Kategorie ergänzt, danach speichert
 der Button „... speichern" die Trainings in die lokale Datenbank. Ein doppelter Upload derselben Datei wird erkannt und übersprungen. Es ist jedoch zu empfehlen nicht zu viele Datein aufeinmal hochzuladen, da sonst Streamlit sich aufhängen kann.
 
-Zum **Ausprobieren ohne eigene Daten** gibt es einen Ordner mit echten
-Trainingsaufzeichnungen: 15 Radeinheiten von Juni bis August 2026,Grundlagenfahrten,
-Sweet-Spot- und Schwellenintervalle, VO2max-Blöcke und ein FTP-Test.
-
-Dieser Ordner ist **nicht Teil des Repositories**, weil die Aufzeichnungen GPS-Spuren und
-damit meine tatsächlichen Wohn- und Trainingsorte enthalten. Er wird separat
-weitergegeben. Zum Nachvollziehen den erhaltenen Ordner nach
+Zum **Ausprobieren ohne eigene Daten** liegen echte Trainingsaufzeichnungen bereit:
+16 Radeinheiten von Juni bis August 2026 — Grundlagenfahrten, Sweet-Spot- und
+Schwellenintervalle, VO2max-Blöcke und ein FTP-Test.
 
 ```
-data/beispiel/trainings/
+data/beispiel/fit/
 ```
 
-kopieren, oder von einem beliebigen anderen Ort aus in der App hochladen, für den Import
-spielt der Pfad keine Rolle.
-
-Die übrigen Dateien in `data/beispiel/` (`training_gueltig.fit`, `training_defekt.fit`,
-`training_leer.fit`, `physiologische_zyklen_*.csv`) sind bewusst kleine bzw. defekte
-Testfixtures für die Testsuite und nicht zur Demonstration gedacht.
+Der Ordner ist **nicht Teil des Repositories**, weil die Aufzeichnungen GPS-Spuren und
+damit meine tatsächlichen Wohn- und Trainingsorte enthalten; er wird separat
+weitergegeben. Der Pfad spielt für den Import keine Rolle — die Dateien lassen sich auch
+von jedem anderen Ort aus hochladen.
 
 ### Recovery (Whoop-CSV)
 
@@ -84,21 +78,34 @@ Sie stammt aus dem CSV-Datenexport der Whoop-App. Der Export kommt als Archiv
 `physiologische_zyklen.csv`** verwendet, weil nur sie die Tageswerte für Erholung,
 Ruhepuls, HRV, Hauttemperatur, Atemfrequenz und Blutsauerstoff enthält.
 
+Eine passende Datei liegt zum Ausprobieren unter
+
+```
+data/beispiel/whoop/physiologische_zyklen.csv
+```
+
+Auch sie ist aus demselben Grund wie die Trainings nicht Teil des Repositories: es sind
+meine echten Gesundheitswerte.
+
 Wichtig: Der Export muss **auf Deutsch** erzeugt werden (App-Sprache Deutsch). Der Import
 liest die Spalten anhand ihrer deutschen Überschriften, z. B. `Startzeit des Zyklus`,
 `Zeitzone des Zyklus`, `Erholungswert %`, `Herzfrequenzvariabilität (ms)`. Ein
 englischsprachiger Export wird mit einer Fehlermeldung abgelehnt.
 
-Eigene, echte Daten gehören nach `data/private/` — dieser Ordner ist per `.gitignore`
-vom Repository ausgeschlossen.
+### Testdaten
+
+`data/beispiel/fixtures/` enthält sechs sehr kleine Dateien — je eine gültige, eine
+defekte und eine leere FIT- bzw. Whoop-CSV-Datei. Sie gehören zur Testsuite und prüfen
+das Fehlerverhalten des Imports; zur Demonstration sind sie nicht gedacht.
 
 ## Projektstruktur
 
 ```
 src/             Quellcode, ein Package je Fachkonzern (models/, readers/, analysis/, app/, ...)
 tests/           Unit-, Property- und Doctests
-data/beispiel/   eingecheckte Testfixtures (trainings/ wird separat weitergegeben)
-data/private/    eigene, echte Daten und die SQLite-Datenbank (nicht im Repository)
+data/beispiel/   fit/ und whoop/ zum Ausprobieren (separat weitergegeben),
+                 fixtures/ mit den kleinen Testdateien der Testsuite (im Repository)
+data/private/    SQLite-Datenbank, wird beim ersten Start angelegt (nicht im Repository)
 docs/            Begleitdokumentation zum Projektbericht
 ```
 

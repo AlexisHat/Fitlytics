@@ -17,10 +17,10 @@ from pathlib import Path
 import fitdecode
 from fitdecode.utils import compute_crc
 
-SRC = Path("data/private/07-162x8minFTP.fit")
-DST_VALID = Path("data/beispiel/training_gueltig.fit")
-DST_EMPTY = Path("data/beispiel/training_leer.fit")
-DST_BROKEN = Path("data/beispiel/training_defekt.fit")
+SRC = Path("data/beispiel/fit/07-162x8minFTP.fit")
+DST_VALID = Path("data/beispiel/fixtures/training_gueltig.fit")
+DST_EMPTY = Path("data/beispiel/fixtures/training_leer.fit")
+DST_BROKEN = Path("data/beispiel/fixtures/training_defekt.fit")
 
 N_RECORDS = 20
 PREFIX_END = 134  # frames[0:134]: header .. 20th record (inclusive)
